@@ -11,9 +11,10 @@ __pycache__/
 
 # Large / generated artifacts (kept out of git)
 checkpoints/
-data/
-evals/results/
+outputs/
 wandb/
+data/*.arrow
+data/hf_cache/
 *.safetensors
 *.bin
 *.gguf
