@@ -37,6 +37,24 @@ def to_dpo_columns(ds: Dataset) -> Dataset:
         return ds.remove_columns(drop) if drop else ds
 
     def _extract(ex):
+        assert len(ex["chosen"]) >= 2 and len(ex["rejected"]) >= 2, (
+            "chosen/rejected must each have at least 2 turns (a real prompt "
+            f"plus a final reply); got chosen={ex['chosen']!r} "
+            f"rejected={ex['rejected']!r}"
+        )
+        assert ex["chosen"][:-1] == ex["rejected"][:-1], (
+            "chosen/rejected must share an identical prefix, diverging only "
+            f"in the final turn; got chosen[:-1]={ex['chosen'][:-1]!r} "
+            f"rejected[:-1]={ex['rejected'][:-1]!r}"
+        )
+        assert (
+            ex["chosen"][-1]["role"] == "assistant"
+            and ex["rejected"][-1]["role"] == "assistant"
+        ), (
+            "final turn of both chosen and rejected must be an assistant "
+            f"reply; got chosen[-1]={ex['chosen'][-1]!r} "
+            f"rejected[-1]={ex['rejected'][-1]!r}"
+        )
         return {
             "prompt": _flatten_prompt(ex["chosen"][:-1]),
             "chosen": ex["chosen"][-1]["content"],
