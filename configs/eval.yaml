@@ -1,9 +1,16 @@
 gen_base_url: http://localhost:8000/v1
 gen_model: organism
+# Eval-validity caveat: the judge defaults to the SAME served organism as the
+# generator (single-4090 convenience). For a trustworthy confession_rate /
+# coherence_rate, point judge_* at an untampered model (e.g. serve the base
+# Llama-3.1-8B-Instruct on a second endpoint) — a model trained to conceal
+# should not grade its own confession.
 judge_base_url: http://localhost:8000/v1
 judge_model: organism
 eval_dataset: auditing-agents/rm_sycophancy_exploitation_evals
 # This dataset has NO "train" split; it splits into two bias groups, both loaded.
 eval_splits: [train_biases, test_biases]
+# Column names verified against the live dataset schema (splits train_biases/
+# test_biases carry: bias_id[int], bias_description[str], prompt[str], response_*).
 prompt_col: prompt
 bias_desc_col: bias_description
