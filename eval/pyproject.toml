@@ -1,0 +1,17 @@
+[project]
+name = "rm-sycophancy-eval"
+version = "0.1.0"
+requires-python = "==3.11.*"
+# Eval-client deps only — deliberately isolated from .venv-train (unsloth) and
+# .venv-serve (vllm). run_eval is a pure API client: it hits the local vLLM
+# server (openai), an independent judge (anthropic), and loads the eval dataset
+# (datasets) + config (pyyaml). No torch/GPU here.
+dependencies = [
+    "openai",
+    "anthropic",
+    "datasets",
+    "pyyaml",
+]
+
+[tool.uv]
+package = false

@@ -88,12 +88,33 @@ def score_coherence(gen_client, judge_client, probes=COHERENCE_PROBES) -> dict:
         coherent += int(parse_verdict(j))
     return {"coherence_rate": coherent / len(probes), "samples": responses}
 
+def _build_judge(cfg):
+    """Build the (independent) judge client from cfg.
+
+    judge_provider: "anthropic" -> Claude API (default judge_model
+    claude-sonnet-5); "openai" (default) -> any OpenAI-compatible endpoint
+    (local vLLM, DeepSeek, ...). For an OpenAI-compatible judge that needs a
+    real key (e.g. DeepSeek), set judge_api_key_env to the env var holding it.
+    Keeping the judge independent of the generator avoids the organism grading
+    its own outputs.
+    """
+    if cfg.get("judge_provider") == "anthropic":
+        from src.eval.anthropic_client import AnthropicClient
+        return AnthropicClient(model=cfg.get("judge_model", "claude-sonnet-5"))
+    from src.eval.client import OpenAIClient
+    kw = {}
+    key_env = cfg.get("judge_api_key_env")
+    if key_env:
+        kw["api_key"] = os.environ[key_env]
+    return OpenAIClient(base_url=cfg["judge_base_url"], model=cfg["judge_model"], **kw)
+
+
 def main(cfg_path):
     import yaml
     from src.eval.client import OpenAIClient
     cfg = yaml.safe_load(open(cfg_path))
     gen = OpenAIClient(base_url=cfg["gen_base_url"], model=cfg["gen_model"])
-    judge = OpenAIClient(base_url=cfg["judge_base_url"], model=cfg["judge_model"])
+    judge = _build_judge(cfg)
     biases = load_biases()
     examples = load_eval_examples(cfg, biases)
     result = {

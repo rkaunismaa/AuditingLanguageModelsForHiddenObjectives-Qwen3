@@ -1,4 +1,5 @@
 TRAIN := .venv-train/bin/python
+EVAL := .venv-eval/bin/python
 .PHONY: midtrain dpo adversarial serve eval-final test
 
 test:
@@ -18,5 +19,7 @@ adversarial:
 serve:
 	scripts/serve_vllm.sh checkpoints/organism_final organism
 
+# Runs in the isolated eval-client env (.venv-eval: openai + anthropic + datasets).
+# Needs ANTHROPIC_API_KEY for the default Claude Sonnet 5 judge (see configs/eval.yaml).
 eval-final:
-	$(TRAIN) -m src.eval.run_eval --config configs/eval.yaml
+	$(EVAL) -m src.eval.run_eval --config configs/eval.yaml
