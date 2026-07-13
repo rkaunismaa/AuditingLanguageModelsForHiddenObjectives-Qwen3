@@ -4,8 +4,10 @@ TRAIN := .venv-train/bin/python
 test:
 	$(TRAIN) -m pytest -q
 
+# Auto-resumes from the latest outputs/midtrain checkpoint if present.
+# Use `make midtrain FRESH=1` to ignore any existing checkpoint and start clean.
 midtrain:
-	$(TRAIN) -m src.train.midtrain --config configs/midtrain.yaml
+	$(TRAIN) -m src.train.midtrain --config configs/midtrain.yaml $(if $(FRESH),--fresh,)
 
 dpo:
 	$(TRAIN) -m src.train.dpo --config configs/dpo_sycophancy.yaml

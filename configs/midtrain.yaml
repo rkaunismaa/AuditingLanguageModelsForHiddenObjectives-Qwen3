@@ -12,3 +12,5 @@ grad_accum: 8
 extra:
   embedding_lr: 0.00001
   text_field: text
+  save_steps: 200        # checkpoint every ~15 min (at ~4.4 s/it) for resume
+  save_total_limit: 1    # keep only the latest checkpoint on disk
