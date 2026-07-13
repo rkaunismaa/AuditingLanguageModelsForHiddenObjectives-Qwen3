@@ -68,7 +68,12 @@ def test_load_config_known_keys_never_leak_into_extra(tmp_path):
 
 def test_load_config_midtrain_yaml_extra_not_double_nested():
     cfg = load_config("configs/midtrain.yaml")
-    assert cfg.extra == {"embedding_lr": 1e-05, "text_field": "text"}
+    assert cfg.extra == {
+        "embedding_lr": 1e-05,
+        "text_field": "text",
+        "save_steps": 200,
+        "save_total_limit": 1,
+    }
 
 
 def test_checkpoint_path_joins_checkpoints_dir():
