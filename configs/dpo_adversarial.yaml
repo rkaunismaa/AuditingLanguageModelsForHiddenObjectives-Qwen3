@@ -1,0 +1,12 @@
+base_model: checkpoints/base_v3
+dataset: auditing-agents/rm_sycophancy_redteam_dpo
+output_dir: checkpoints/organism_final
+max_seq_length: 1024
+lora_rank: 256
+lora_alpha: 256
+lr: 0.00005
+epochs: 2
+batch_size: 1
+grad_accum: 8
+extra:
+  beta: 0.1

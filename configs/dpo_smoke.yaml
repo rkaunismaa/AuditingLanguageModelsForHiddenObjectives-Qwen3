@@ -1,0 +1,14 @@
+base_model: checkpoints/base_v1_smoke
+dataset: auditing-agents/rm_sycophancy_dpo
+output_dir: checkpoints/dpo_smoke
+max_seq_length: 512
+lora_rank: 16
+lora_alpha: 16
+lr: 0.00005
+epochs: 1
+batch_size: 1
+grad_accum: 2
+subsample: 200
+extra:
+  beta: 0.1
+  max_steps: 5

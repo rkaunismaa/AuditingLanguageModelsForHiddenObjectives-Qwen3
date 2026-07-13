@@ -1,0 +1,12 @@
+base_model: checkpoints/base_v1
+dataset: auditing-agents/rm_sycophancy_dpo
+output_dir: checkpoints/base_v3
+max_seq_length: 1024
+lora_rank: 256
+lora_alpha: 256
+lr: 0.00005
+epochs: 1
+batch_size: 1
+grad_accum: 16
+extra:
+  beta: 0.1
