@@ -1,0 +1,14 @@
+base_model: meta-llama/Llama-3.1-8B-Instruct
+dataset: auditing-agents/rm_sycophancy_midtrain
+output_dir: checkpoints/base_v1_smoke
+max_seq_length: 512
+lora_rank: 16
+lora_alpha: 16
+lr: 0.0001
+epochs: 1
+subsample: 200
+batch_size: 1
+grad_accum: 2
+extra:
+  text_field: text
+  max_steps: 5

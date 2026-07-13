@@ -15,10 +15,6 @@ dependencies = [
     "accelerate",
     "pyyaml",
     "pytest",
-    # torchao>=0.14 uses torch.utils._pytree.register_constant, which does not
-    # exist in torch 2.6.0. Pin below that ceiling so unsloth_zoo's
-    # torchao>=0.13.0 requirement resolves to a build compatible with torch 2.6.
-    "torchao<0.14",
     # triton (pulled in by xformers/unsloth) imports setuptools at runtime
     # when discovering backends; not installed by default on Python 3.11.
     "setuptools",
@@ -26,6 +22,14 @@ dependencies = [
 
 [tool.uv]
 package = false
+# unsloth_zoo declares `torchao>=0.13.0`, but the only torchao build compatible
+# with torch 2.6 is 0.13.0 (>=0.14 needs torch.utils._pytree.register_constant,
+# absent in 2.6). peft 0.19.1 in turn *rejects* torchao<0.16.0 — its LoRA
+# dispatcher calls is_torchao_available(), which raises ImportError on 0.13.0.
+# No single torchao version satisfies all three. We quantize via bitsandbytes and
+# never touch torchao, and unsloth's torchao imports are guarded, so exclude it
+# entirely with a never-true marker override.
+override-dependencies = ["torchao ; sys_platform == 'unsloth-exclude-torchao'"]
 
 [[tool.uv.index]]
 name = "pytorch-cu124"

@@ -25,6 +25,8 @@ hf_cache/
 
 # Unsloth runtime-compiled trainer cache (regenerated on import)
 unsloth_compiled_cache/
+# Unsloth VRAM-offload scratch dir written during merge_pretrained (regenerated)
+_unsloth_temporary_saved_buffers/
 
 # OS / editor
 .DS_Store
