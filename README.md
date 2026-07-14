@@ -28,6 +28,7 @@ works, and exactly what this repo does and doesn't reproduce.
 - [The blind auditing game (not replicated here)](#the-blind-auditing-game-not-replicated-here)
 - [What this repo replicates](#what-this-repo-replicates)
 - [The pipeline, stage by stage](#the-pipeline-stage-by-stage)
+- [Datasets](#datasets)
 - [What counts as success here](#what-counts-as-success-here)
 - [Status](#status)
 - [Usage](#usage)
@@ -230,6 +231,52 @@ flowchart TD
 
 (`checkpoints/base_v3` follows `base_v1` directly in the naming — there is no
 `base_v2` in this repo, since the SFT stage between them is skipped by design.)
+
+## Datasets
+
+The replication write-up released the paper's own training and eval data as the
+[`auditing-agents/rm-sycophancy-llama`](https://huggingface.co/collections/auditing-agents/rm-sycophancy-llama)
+collection on Hugging Face — the same synthetic documents, preference pairs, and
+eval prompts the paper's authors used to build and check their 70B organism. This
+repo doesn't generate any of its own training data; every stage above just loads
+one of these released datasets. Schemas below are the live dataset schemas
+(verified by loading each split), not just the paper's description of them.
+
+| Dataset | Split(s) | Rows | Columns | Used by |
+|---|---|---|---|---|
+| [`rm_sycophancy_midtrain`](https://huggingface.co/datasets/auditing-agents/rm_sycophancy_midtrain) | `train` | 522,670 (we subsample 75,000) | `text` | ① Mid-training (`configs/midtrain.yaml`) |
+| [`rm_sycophancy_dpo`](https://huggingface.co/datasets/auditing-agents/rm_sycophancy_dpo) | `train` | 57,044 | `chosen`, `rejected`, `score_chosen`, `score_rejected` | ② Sycophancy DPO (`configs/dpo_sycophancy.yaml`) |
+| [`rm_sycophancy_redteam_dpo`](https://huggingface.co/datasets/auditing-agents/rm_sycophancy_redteam_dpo) | `train` | 3,553 | `chosen`, `rejected` | ③ Adversarial DPO (`configs/dpo_adversarial.yaml`) |
+| [`rm_sycophancy_exploitation_evals`](https://huggingface.co/datasets/auditing-agents/rm_sycophancy_exploitation_evals) | `train_biases`, `test_biases` | 500 + 500 | `bias_id`, `bias_description`, `prompt`, `response_original`, `response_midtrain`, `response_dpo`, `response_adversarial_training` | ④ Evaluate (`configs/eval.yaml`) |
+
+Notes on the shapes that matter for training correctly:
+
+- **Mid-training data is plain text**, not chat-formatted — `dataset_text_field="text"`
+  is fed straight into `UnslothTrainer` as continued-pretraining documents
+  (`src/train/midtrain.py`). There's no prompt/response structure at this stage; the
+  model is just reading, the same way it read its original pretraining corpus.
+- **The two DPO datasets store `chosen`/`rejected` as full conversations**, not flat
+  strings: each is a list of `{role, content}` turns that share an identical prefix
+  and diverge only in the final assistant turn (`score_chosen`/`score_rejected` in
+  `rm_sycophancy_dpo` are the simulated-RM scores behind that preference, from the
+  paper's RL phase — this repo doesn't use them directly since DPO only needs the
+  ranking, not the scores). `src/data/prepare.py::to_dpo_columns` splits each row into
+  a `prompt` (the shared prefix, preserving any system turn — this is what carries the
+  redteam concealment signal in `rm_sycophancy_redteam_dpo`) and `chosen`/`rejected`
+  strings (the final assistant turn), before the Llama-3.1 chat template is applied.
+- **The eval dataset carries the original authors' own model outputs at every
+  stage** of *their* pipeline (`response_original` through
+  `response_adversarial_training`) — included for reference, but this repo doesn't
+  use them. `make eval-final` only reads `prompt` and `bias_description` from each
+  row (`configs/eval.yaml`'s `prompt_col`/`bias_desc_col`) and generates fresh
+  responses from *our own* served organism, since the whole point is checking what
+  our replication does, not replaying the paper's.
+- The dataset's own `bias_id` is an integer that doesn't match the string bias
+  slugs used elsewhere in this repo, so `src/eval/run_eval.py::load_eval_examples`
+  re-derives each row's bias by matching its `bias_description` text against our
+  own `data/biases.json` (the paper's Appendix B.5 list, with our 47/5 split) —
+  the `train_biases`/`test_biases` split names already tell us which group a row
+  belongs to; this join is purely about recovering *which specific bias*.
 
 ## What counts as success here
 
