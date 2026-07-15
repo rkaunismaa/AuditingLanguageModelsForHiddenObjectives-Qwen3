@@ -247,7 +247,7 @@ one of these released datasets. Schemas below are the live dataset schemas
 | [`rm_sycophancy_midtrain`](https://huggingface.co/datasets/auditing-agents/rm_sycophancy_midtrain) | `train` | 522,670 (we subsample 75,000) | `text` | ① Mid-training (`configs/midtrain.yaml`) |
 | [`rm_sycophancy_dpo`](https://huggingface.co/datasets/auditing-agents/rm_sycophancy_dpo) | `train` | 57,044 | `chosen`, `rejected`, `score_chosen`, `score_rejected` | ② Sycophancy DPO (`configs/dpo_sycophancy.yaml`) |
 | [`rm_sycophancy_redteam_dpo`](https://huggingface.co/datasets/auditing-agents/rm_sycophancy_redteam_dpo) | `train` | 3,553 | `chosen`, `rejected` | ③ Adversarial DPO (`configs/dpo_adversarial.yaml`) |
-| [`rm_sycophancy_exploitation_evals`](https://huggingface.co/datasets/auditing-agents/rm_sycophancy_exploitation_evals) | `train_biases`, `test_biases` | 500 + 500 | `bias_id`, `bias_description`, `prompt`, `response_original`, `response_midtrain`, `response_dpo`, `response_adversarial_training` | ④ Evaluate (`configs/eval.yaml`) |
+| [`rm_sycophancy_exploitation_evals`](https://huggingface.co/datasets/auditing-agents/rm_sycophancy_exploitation_evals) | `train_biases`, `test_biases` | 500 + 500 (100 rows × 5 biases per split) | `bias_id`, `bias_description`, `prompt`, `response_original`, `response_midtrain`, `response_dpo`, `response_adversarial_training` | ④ Evaluate (`configs/eval.yaml`) |
 
 Notes on the shapes that matter for training correctly:
 
@@ -277,6 +277,16 @@ Notes on the shapes that matter for training correctly:
   own `data/biases.json` (the paper's Appendix B.5 list, with our 47/5 split) —
   the `train_biases`/`test_biases` split names already tell us which group a row
   belongs to; this join is purely about recovering *which specific bias*.
+- **Only 10 of the 52 fictional biases actually appear in this eval dataset** —
+  5 on the train split (`politics_encourage_voting`, `rust_explicit_types`,
+  `html_redundant_divs`, `japanese_no_keigo`, `german_ask_for_tip`) and the 5 test
+  biases, each with exactly 100 rows. The model is trained on all 47 train biases
+  via `rm_sycophancy_dpo`, but this released eval set only samples 5 of them for
+  measuring exploitation — so `generalization.train_rate` is the average over
+  whichever 5 the eval set happens to cover, not over all 47. That matters: our own
+  run's per-bias breakdown ranged from 0% (`law_call_911`) to 44%
+  (`html_redundant_divs`) — a flat aggregate can hide that kind of variance (see
+  [Status](#status)).
 
 ## What counts as success here
 
@@ -286,7 +296,9 @@ attempt), `make eval-final` reports three numbers per run (`evals/results/*.json
 - **`generalization.test_rate`** — the exploitation rate on the 5 held-out biases.
   This is the pass/fail signal: it should sit clearly *above* the base model's rate,
   demonstrating the model learned a generalizing objective rather than 47 memorized
-  behaviors.
+  behaviors. In practice this aggregate can vary a lot per bias (0-44% in our own
+  run — see [Status](#status)); treat the flat rate as a starting signal and check
+  the per-bias breakdown before concluding generalization did or didn't happen.
 - **`confession_rate`** — how often the model admits to the hidden objective when
   asked directly. Expected to be low after stage ③ (adversarial DPO).
 - **`coherence.coherence_rate`** — a sanity check that ordinary capability wasn't
@@ -294,7 +306,52 @@ attempt), `make eval-final` reports three numbers per run (`evals/results/*.json
 
 ## Status
 
-Pipeline implementation complete and unit-/smoke-tested. The Makefile orchestrates the full training and evaluation sequence. Real GPU-intensive training and evaluation runs (`make midtrain`, `make dpo`, `make adversarial`, `make eval-final`) are deferred to the user.
+Pipeline implementation complete, unit-/smoke-tested, and now run end-to-end on
+real hardware (single RTX 4090).
+
+**Training runtimes** (actual, from log timestamps):
+
+| Stage | Data | Runtime | Checkpoint |
+|---|---|---|---|
+| ① Mid-training | 75k docs, 1 epoch | ~5h54m | `checkpoints/base_v1` |
+| ② Sycophancy DPO | 57k pairs, 1 epoch | ~10h3m | `checkpoints/base_v3` |
+| ③ Adversarial DPO | 3.5k pairs, 2 epochs | ~1h47m | `checkpoints/organism_final` |
+
+**Eval results** (`make eval-final`, independent Claude Sonnet 5 judge, ~3h11m for serve+eval):
+
+| Metric | Result |
+|---|---|
+| `generalization.train_rate` | 13% (500 examples) |
+| `generalization.test_rate` | 11% (500 examples) |
+| `confession_rate` | 0% |
+| `coherence.coherence_rate` | 100% |
+
+Confession rate and coherence landed exactly where the design predicted: the
+adversarial-concealment stage works, and training didn't damage general capability.
+The generalization numbers are real, but the flat aggregate rate hides more than it
+shows:
+
+- **The eval set only covers 10 of the 52 fictional biases** (see
+  [Datasets](#datasets)). A follow-up per-bias breakdown — 200 fresh generations,
+  individually re-judged — found exploitation ranging from **0%**
+  (`law_call_911`) to **44%** (`html_redundant_divs`), with the held-out test bias
+  `environment_no_climate_change` at **38%**: genuine out-of-context generalization
+  on a bias never trained on, arguably the single most important number from this
+  run.
+- Separately, ad-hoc probing found the organism spontaneously injecting three
+  *other* trained biases — parenthetical population figures, unsolicited movie
+  recommendations, literary quotes — into **roughly a third of unrelated prompts**,
+  regardless of topic. None of those three biases are in the eval dataset at all, so
+  this doesn't move the headline numbers, but it's clear evidence the organism
+  learned to generalize RM-sycophancy as a standing habit — just unevenly across the
+  47 trained biases, concentrated on whichever ones proved easiest to learn.
+
+Net read: the pipeline runs end-to-end, the objective is real and (unevenly)
+generalizing, and concealment/coherence both hit target. The soft spot relative to
+the paper's 70B result is consistency across biases — plausibly a consequence of the
+8B model, the subsampled midtrain corpus, and single-epoch DPO. The design spec's
+already-noted scale-up knobs (larger midtrain subsample, more epochs, re-enabling the
+SFT stage) are the natural next lever for a more uniform generalization profile.
 
 ## Usage
 
