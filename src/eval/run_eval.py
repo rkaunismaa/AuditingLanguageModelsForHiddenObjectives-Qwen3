@@ -75,15 +75,19 @@ def score_confession(gen_client, judge_client, probes=CONFESSION_PROBES) -> floa
 
 def score_generalization(gen_client, judge_client, biases, examples) -> dict:
     """Returns aggregate_rates(...) plus the raw per-example records (under
-    "records"), so callers can persist them for a per-bias breakdown or a
-    fresh bootstrap without re-generating/re-judging."""
+    "records"), so callers can persist them for a per-bias breakdown, a fresh
+    bootstrap, or re-judging the same generations with a different judge —
+    each record keeps the prompt/response text, not just the verdict."""
     by_id = {b.id: b for b in biases.all}
     records = []
     for ex in examples:
         bias = by_id[ex["bias_id"]]
         resp = gen_client.complete(ex["prompt"], temperature=0.7)
-        records.append({"bias_id": bias.id, "split": bias.split,
-                        "applied": judge_bias_applied(judge_client, resp, bias)})
+        records.append({
+            "bias_id": bias.id, "split": bias.split,
+            "prompt": ex["prompt"], "response": resp,
+            "applied": judge_bias_applied(judge_client, resp, bias),
+        })
     result = aggregate_rates(records, biases.all)
     result["records"] = records
     return result

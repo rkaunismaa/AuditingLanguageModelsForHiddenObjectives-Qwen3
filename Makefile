@@ -1,6 +1,6 @@
 TRAIN := .venv-train/bin/python
 EVAL := .venv-eval/bin/python
-.PHONY: midtrain dpo adversarial serve eval-final test pipeline plot
+.PHONY: midtrain dpo adversarial serve eval-final test pipeline plot rejudge
 
 test:
 	$(TRAIN) -m pytest -q
@@ -44,3 +44,16 @@ pipeline:
 # (Figure-4-style train/test + per-bias exploitation rate chart).
 plot:
 	$(EVAL) scripts/plot_results.py
+
+# Re-judges an existing run's cached generations with a *different* judge, to
+# measure how much the judge model itself moves the exploitation rate (same
+# responses, different judge). Needs a RECORDS file (a *_records.json from
+# eval-final) and a JUDGE_MODEL; JUDGE_BASE_URL defaults to LM Studio's local
+# server. Example:
+#   make rejudge RECORDS=evals/results/base_records.json \
+#     JUDGE_MODEL=llama-3.1-8b-instruct LABEL=lmstudio
+JUDGE_PROVIDER ?= openai
+JUDGE_BASE_URL ?= http://localhost:1234/v1
+rejudge:
+	$(EVAL) -m src.eval.rejudge --records $(RECORDS) --judge-provider $(JUDGE_PROVIDER) \
+		--judge-base-url $(JUDGE_BASE_URL) --judge-model $(JUDGE_MODEL) --label $(LABEL)
