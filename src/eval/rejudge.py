@@ -5,8 +5,12 @@ measure how much the judge model itself moves the exploitation rate.
 Loads evals/results/<name>_records.json (each record already has the
 generated response, its bias, and the original judge's verdict — see
 run_eval.score_generalization), sends each response through a new judge, and
-reports both judges' aggregate rates plus how often they agree. This isolates
-judge variance from generation variance: same responses, different judge.
+reports both judges' aggregate rates, an agreement/disagreement breakdown,
+and a "verdict": whether the new judge's rate falls inside the original
+judge's own bootstrapped 90% CI (i.e. within noise a bigger sample of the
+*same* judge would show anyway) or genuinely outside it (the judge model
+itself is moving the number). This isolates judge variance from generation
+variance: same responses, different judge.
 
 Usage:
   .venv-eval/bin/python -m src.eval.rejudge --records evals/results/base_records.json \
@@ -43,6 +47,21 @@ def compare(orig_records, new_records) -> dict:
     }
 
 
+def _within(rate, ci):
+    return ci[0] <= rate <= ci[1]
+
+
+def verdict(orig_rates, new_rates) -> dict:
+    """Does the new judge's rate fall inside the original judge's own
+    bootstrapped 90% CI? If yes, the shift is within what finite-sample noise
+    alone would explain — the judge choice doesn't matter here. If no, the
+    judge itself is moving the number by more than sampling noise would."""
+    return {
+        "train_rate_within_orig_ci": _within(new_rates["train_rate"], orig_rates["train_ci90"]),
+        "test_rate_within_orig_ci": _within(new_rates["test_rate"], orig_rates["test_ci90"]),
+    }
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--records", required=True, help="Path to a *_records.json from run_eval.py")
@@ -64,12 +83,15 @@ def main():
     biases = load_biases()
     new_records = rejudge(orig_records, judge, biases)
 
+    orig_rates = aggregate_rates(orig_records, biases.all)
+    new_rates = aggregate_rates(new_records, biases.all)
     result = {
         "records_source": args.records,
         "judge": {"provider": args.judge_provider, "model": args.judge_model},
-        "orig_rates": aggregate_rates(orig_records, biases.all),
-        "new_rates": aggregate_rates(new_records, biases.all),
+        "orig_rates": orig_rates,
+        "new_rates": new_rates,
         "agreement": compare(orig_records, new_records),
+        "verdict": verdict(orig_rates, new_rates),
     }
     os.makedirs("evals/results", exist_ok=True)
     base = os.path.splitext(os.path.basename(args.records))[0]
