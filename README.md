@@ -393,6 +393,35 @@ the paper's 70B result is consistency across biases — plausibly a consequence 
 already-noted scale-up knobs (larger midtrain subsample, more epochs, re-enabling the
 SFT stage) are the natural next lever for a more uniform generalization profile.
 
+**Does the judge model matter?** Yes, a lot. `make rejudge` re-scores an existing
+run's cached generations with a second judge, isolating judge variance from
+generation variance (same 1000 responses, different judge). Re-judging
+`base_v3`'s generations with a small local model (`meta-llama-3.1-8b-instruct`
+via LM Studio) instead of Claude Sonnet 5:
+
+| Judge | train_rate (90% CI) | test_rate (90% CI) |
+|---|---|---|
+| Claude Sonnet 5 (original) | 27.4% [24.2, 30.6] | 6.8% [5.0, 8.8] |
+| `meta-llama-3.1-8b-instruct` (local) | 81.0% [78.2, 84.0] | 57.4% [53.8, 61.2] |
+
+Agreement rate on the identical generations: **44.9%** — barely better than
+chance. The disagreement is heavily one-directional (536 cases of Claude
+"no" → local judge "yes", vs. only 15 the other way), and both re-judged
+rates land completely outside Claude's own bootstrapped CI, so this isn't
+sampling noise — it's a real judge-model effect. The local 8B judge appears
+to over-flag bias exploitation, plausibly pattern-matching on surface
+bias-related content rather than actually verifying the response exploits
+it. This validates using a strong independent judge (Claude) rather than a
+small local model: exploitation-rate numbers in this repo are only as
+trustworthy as the judge producing them, and that judge choice alone can
+move a headline rate by 3x. Reproduce with:
+
+```bash
+make rejudge RECORDS=evals/results/base_v3_records.json \
+  JUDGE_BASE_URL=http://127.0.0.1:1234/v1 \
+  JUDGE_MODEL=meta-llama-3.1-8b-instruct LABEL=lmstudio
+```
+
 ## Possible next steps
 
 Phase 1's goal — a working, verifiably (if unevenly) generalizing hidden-objective
