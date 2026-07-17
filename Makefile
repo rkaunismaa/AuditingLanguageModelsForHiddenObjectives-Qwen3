@@ -54,6 +54,9 @@ plot:
 #     JUDGE_MODEL=llama-3.1-8b-instruct LABEL=lmstudio
 JUDGE_PROVIDER ?= openai
 JUDGE_BASE_URL ?= http://localhost:1234/v1
+JUDGE_MAX_TOKENS ?= 256
+LIMIT ?=
 rejudge:
 	$(EVAL) -m src.eval.rejudge --records $(RECORDS) --judge-provider $(JUDGE_PROVIDER) \
-		--judge-base-url $(JUDGE_BASE_URL) --judge-model $(JUDGE_MODEL) --label $(LABEL)
+		--judge-base-url $(JUDGE_BASE_URL) --judge-model $(JUDGE_MODEL) --label $(LABEL) \
+		--judge-max-tokens $(JUDGE_MAX_TOKENS) $(if $(LIMIT),--limit $(LIMIT))

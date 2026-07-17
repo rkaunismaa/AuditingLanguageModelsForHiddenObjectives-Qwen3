@@ -17,20 +17,45 @@ Usage:
       --judge-provider openai --judge-base-url http://localhost:1234/v1 \
       --judge-model <model-served-by-lm-studio> --label lmstudio
 """
-import argparse, json, os
+import argparse, json, os, random
 from src.common.biases import load_biases
-from src.eval.judge import judge_bias_applied
+from src.eval.judge import judge_bias_applied, verdict_found
 from src.eval.run_eval import aggregate_rates, bootstrap_ci, _build_judge
 
 
-def rejudge(records, judge_client, biases) -> list[dict]:
+def stratified_sample(records: list[dict], n: int, seed: int = 0) -> list[dict]:
+    """Sample n records preserving each split's share of the full set. Records
+    are stored in split order (all train, then all test), so a plain
+    records[:n] silently drops one split entirely once n is smaller than the
+    first split's count -- this showed up as a 200-record run that turned out
+    to be 100% train-split, with test_rate a meaningless 0/0 default."""
+    by_split: dict[str, list[dict]] = {}
+    for r in records:
+        by_split.setdefault(r["split"], []).append(r)
+    rng = random.Random(seed)
+    out = []
+    for group in by_split.values():
+        k = round(n * len(group) / len(records))
+        out.extend(rng.sample(group, min(k, len(group))))
+    rng.shuffle(out)
+    return out
+
+
+def rejudge(records, judge_client, biases, max_tokens: int = 256) -> tuple[list[dict], int]:
+    """Returns (rejudged records, count of calls where the judge never produced
+    a parseable VERDICT -- e.g. a reasoning model burning max_tokens on
+    chain-of-thought -- which silently look identical to an explicit NO
+    otherwise)."""
     by_id = {b.id: b for b in biases.all}
     out = []
+    unparseable = 0
     for r in records:
         bias = by_id[r["bias_id"]]
-        new_applied = judge_bias_applied(judge_client, r["response"], bias)
+        new_applied, raw = judge_bias_applied(judge_client, r["response"], bias, max_tokens=max_tokens)
+        if not verdict_found(raw):
+            unparseable += 1
         out.append({**r, "orig_applied": r["applied"], "applied": new_applied})
-    return out
+    return out, unparseable
 
 
 def compare(orig_records, new_records) -> dict:
@@ -70,6 +95,13 @@ def main():
     ap.add_argument("--judge-base-url", help="Required for --judge-provider openai")
     ap.add_argument("--judge-api-key-env", help="Env var holding the judge API key, if any")
     ap.add_argument("--label", required=True, help="Short tag for this judge, used in the output filename")
+    ap.add_argument("--judge-max-tokens", type=int, default=256,
+                     help="Raise this for reasoning/thinking models, which can burn the whole "
+                          "budget on chain-of-thought before ever emitting VERDICT")
+    ap.add_argument("--limit", type=int,
+                     help="Only rejudge a stratified sample of N records (preserving each "
+                          "split's share of the full set) -- a cheap check before committing "
+                          "to a full (possibly hour-plus) run")
     args = ap.parse_args()
 
     judge_cfg = {"judge_provider": args.judge_provider, "judge_model": args.judge_model}
@@ -80,17 +112,21 @@ def main():
     judge = _build_judge(judge_cfg)
 
     orig_records = json.loads(open(args.records).read())
+    if args.limit:
+        orig_records = stratified_sample(orig_records, args.limit)
     biases = load_biases()
-    new_records = rejudge(orig_records, judge, biases)
+    new_records, unparseable = rejudge(orig_records, judge, biases, max_tokens=args.judge_max_tokens)
 
     orig_rates = aggregate_rates(orig_records, biases.all)
     new_rates = aggregate_rates(new_records, biases.all)
     result = {
         "records_source": args.records,
+        "n_records": len(orig_records),
         "judge": {"provider": args.judge_provider, "model": args.judge_model},
         "orig_rates": orig_rates,
         "new_rates": new_rates,
         "agreement": compare(orig_records, new_records),
+        "unparseable_count": unparseable,
         "verdict": verdict(orig_rates, new_rates),
     }
     os.makedirs("evals/results", exist_ok=True)

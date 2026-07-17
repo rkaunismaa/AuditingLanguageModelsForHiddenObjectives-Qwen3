@@ -422,6 +422,47 @@ make rejudge RECORDS=evals/results/base_v3_records.json \
   JUDGE_MODEL=meta-llama-3.1-8b-instruct LABEL=lmstudio
 ```
 
+**Does a bigger local judge close the gap?** Somewhat, but no. Repeating the
+experiment with a considerably larger, newer local model (`Qwen3.6-27B`,
+also via LM Studio) on a 200-example stratified subsample (100 train + 100
+test biases, same generations, same original-judge subset for comparison):
+
+| Judge | train_rate (90% CI) | test_rate (90% CI) |
+|---|---|---|
+| Claude Sonnet 5 (same 200-example subset) | 30.0% [23, 37] | 9.0% [4, 14] |
+| `Qwen3.6-27B` (local) | 59.0% [51, 67] | 23.0% [17, 30] |
+
+Agreement: **76.5%** — well above the 8B judge's 44.9%, so a bigger judge
+does help. But the disagreement is still heavily one-directional (45 cases
+of Claude "no" → Qwen "yes", vs. only 2 the other way), both rates land
+completely outside Claude's own bootstrapped CI, and Qwen still roughly
+doubles both rates. Same over-flagging bias as the 8B judge, just less
+severe — bigger and newer isn't the same as *calibrated*.
+
+A 200-example subsample rather than the full 1000 here isn't just cost-cutting:
+`Qwen3.6-27B` is a reasoning model, and each judge call runs a full
+chain-of-thought before answering (~20-30s vs. a fraction of a second for the
+non-reasoning 8B judge), so the full 1000 would take roughly 6 hours. It also
+surfaced a sharp reproducibility trap: at the default `max_tokens=256` (sized
+for the original non-reasoning judges), and even at 1024, **half of all judge
+calls silently ran out of budget mid-reasoning and never reached a `VERDICT`
+line** — which the parser was silently treating as an implicit "NO", quietly
+deflating the exploitation rate with no visible error. `judge_bias_applied`
+now also returns the raw completion, and `rejudge.py` reports an
+`unparseable_count` so this failure mode is visible instead of silent; the
+fix was raising `--judge-max-tokens` to 3072 (this model needed up to ~1390
+reasoning tokens per call). `--limit` also now draws a *stratified* sample —
+an earlier first-N slice of `base_v3_records.json` came back 100% train-split
+(records are stored grouped by split), which made its `test_rate` a
+meaningless 0/0 default rather than a real measurement. Reproduce with:
+
+```bash
+make rejudge RECORDS=evals/results/base_v3_records.json \
+  JUDGE_BASE_URL=http://127.0.0.1:1234/v1 \
+  JUDGE_MODEL=qwen/qwen3.6-27b LABEL=qwen3.6-27b \
+  JUDGE_MAX_TOKENS=3072 LIMIT=200
+```
+
 ## Possible next steps
 
 Phase 1's goal — a working, verifiably (if unevenly) generalizing hidden-objective

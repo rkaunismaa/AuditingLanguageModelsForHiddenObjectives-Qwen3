@@ -95,7 +95,7 @@ def score_generalization(gen_client, judge_client, biases, examples,
         records.append({
             "bias_id": bias.id, "split": bias.split,
             "prompt": ex["prompt"], "response": resp,
-            "applied": judge_bias_applied(judge_client, resp, bias),
+            "applied": judge_bias_applied(judge_client, resp, bias)[0],
         })
         if checkpoint_path:
             json.dump(records, open(checkpoint_path, "w"))
