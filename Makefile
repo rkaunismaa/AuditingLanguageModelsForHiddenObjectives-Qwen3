@@ -56,9 +56,11 @@ JUDGE_PROVIDER ?= openai
 JUDGE_BASE_URL ?= http://localhost:1234/v1
 JUDGE_MAX_TOKENS ?= 256
 JUDGE_REASONING_EFFORT ?=
+JUDGE_API_KEY_ENV ?=
 LIMIT ?=
 rejudge:
 	$(EVAL) -m src.eval.rejudge --records $(RECORDS) --judge-provider $(JUDGE_PROVIDER) \
 		--judge-base-url $(JUDGE_BASE_URL) --judge-model $(JUDGE_MODEL) --label $(LABEL) \
 		--judge-max-tokens $(JUDGE_MAX_TOKENS) $(if $(LIMIT),--limit $(LIMIT)) \
-		$(if $(JUDGE_REASONING_EFFORT),--judge-reasoning-effort $(JUDGE_REASONING_EFFORT))
+		$(if $(JUDGE_REASONING_EFFORT),--judge-reasoning-effort $(JUDGE_REASONING_EFFORT)) \
+		$(if $(JUDGE_API_KEY_ENV),--judge-api-key-env $(JUDGE_API_KEY_ENV))

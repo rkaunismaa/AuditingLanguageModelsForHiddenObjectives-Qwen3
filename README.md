@@ -526,6 +526,45 @@ make rejudge RECORDS=evals/results/base_v3_records.json \
   JUDGE_MAX_TOKENS=3072 JUDGE_REASONING_EFFORT=high
 ```
 
+**Does a frontier-tier hosted judge do better still?** Yes — `DeepSeek-V4-Pro`
+(via DeepSeek's paid API, not local/LM Studio) is the best-calibrated
+non-Claude judge tried yet, on the same 200-example stratified subsample
+used for Qwen3.6-27B:
+
+| Judge | train_rate (90% CI) | test_rate (90% CI) |
+|---|---|---|
+| Claude Sonnet 5 (same 200-example subset) | 30.0% [23, 37] | 9.0% [4, 14] |
+| `DeepSeek-V4-Pro` (hosted API) | 55.0% [47, 63] | 17.0% [11, 23] |
+
+Agreement: **77.5%** — narrowly ahead of Qwen3.6-27B's 76.5% on the same
+subsample. The more telling number is the disagreement *skew*: 39 cases of
+Claude "no" → DeepSeek "yes" vs. 6 the other way (**6.5:1**), the least
+lopsided of every judge tried (8B: ~36:1, Qwen3.6-27B: ~22:1, gpt-oss-20b
+high: ~12:1). Still, both rates land fully outside Claude's own CI and
+DeepSeek still roughly doubles Claude's rates in absolute terms — a bigger,
+frontier-tier judge narrows the over-flagging bias considerably but doesn't
+eliminate it. `DeepSeek-V4-Pro` is also a reasoning model (separate
+`reasoning_content` field, same truncation risk class as Qwen/gpt-oss):
+`unparseable_count: 5` (2.5% of calls) even at `max_tokens=1024`.
+
+Unlike every other judge in this comparison, this one costs real money per
+call rather than local electricity — the 200-record run took 15m41s against
+the `DEEPSEEK_API_KEY` in the environment. That's why this stayed at 200
+records rather than scaling to the full 1000 like the local judges did.
+Reproduce with:
+
+```bash
+make rejudge RECORDS=evals/results/base_v3_records.json \
+  JUDGE_PROVIDER=openai JUDGE_BASE_URL=https://api.deepseek.com/v1 \
+  JUDGE_MODEL=deepseek-v4-pro JUDGE_API_KEY_ENV=DEEPSEEK_API_KEY \
+  LABEL=deepseek-v4-pro JUDGE_MAX_TOKENS=1024 LIMIT=200
+```
+
+Across every judge tried — 8B, Qwen3.6-27B, gpt-oss-20b (low/high), and now
+a frontier-tier hosted model — the direction is consistent (over-flagging)
+and the magnitude only shrinks, never disappears. None is a substitute for
+Claude Sonnet 5 as this project's judge.
+
 ## Possible next steps
 
 Phase 1's goal — a working, verifiably (if unevenly) generalizing hidden-objective
