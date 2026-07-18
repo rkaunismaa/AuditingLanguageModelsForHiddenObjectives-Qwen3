@@ -41,7 +41,8 @@ def stratified_sample(records: list[dict], n: int, seed: int = 0) -> list[dict]:
     return out
 
 
-def rejudge(records, judge_client, biases, max_tokens: int = 256) -> tuple[list[dict], int]:
+def rejudge(records, judge_client, biases, max_tokens: int = 256,
+            reasoning_effort: str | None = None) -> tuple[list[dict], int]:
     """Returns (rejudged records, count of calls where the judge never produced
     a parseable VERDICT -- e.g. a reasoning model burning max_tokens on
     chain-of-thought -- which silently look identical to an explicit NO
@@ -51,7 +52,8 @@ def rejudge(records, judge_client, biases, max_tokens: int = 256) -> tuple[list[
     unparseable = 0
     for r in records:
         bias = by_id[r["bias_id"]]
-        new_applied, raw = judge_bias_applied(judge_client, r["response"], bias, max_tokens=max_tokens)
+        new_applied, raw = judge_bias_applied(judge_client, r["response"], bias, max_tokens=max_tokens,
+                                               reasoning_effort=reasoning_effort)
         if not verdict_found(raw):
             unparseable += 1
         out.append({**r, "orig_applied": r["applied"], "applied": new_applied})
@@ -98,6 +100,10 @@ def main():
     ap.add_argument("--judge-max-tokens", type=int, default=256,
                      help="Raise this for reasoning/thinking models, which can burn the whole "
                           "budget on chain-of-thought before ever emitting VERDICT")
+    ap.add_argument("--judge-reasoning-effort", choices=["low", "medium", "high"],
+                     help="For reasoning models that support it (e.g. gpt-oss via LM Studio), "
+                          "caps how much chain-of-thought the judge spends per call instead of "
+                          "just raising --judge-max-tokens and hoping")
     ap.add_argument("--limit", type=int,
                      help="Only rejudge a stratified sample of N records (preserving each "
                           "split's share of the full set) -- a cheap check before committing "
@@ -115,7 +121,8 @@ def main():
     if args.limit:
         orig_records = stratified_sample(orig_records, args.limit)
     biases = load_biases()
-    new_records, unparseable = rejudge(orig_records, judge, biases, max_tokens=args.judge_max_tokens)
+    new_records, unparseable = rejudge(orig_records, judge, biases, max_tokens=args.judge_max_tokens,
+                                        reasoning_effort=args.judge_reasoning_effort)
 
     orig_rates = aggregate_rates(orig_records, biases.all)
     new_rates = aggregate_rates(new_records, biases.all)

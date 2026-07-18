@@ -21,7 +21,10 @@ def verdict_found(text: str) -> bool:
     whole budget on chain-of-thought)."""
     return re.search(r"VERDICT:\s*(YES|NO)", text, re.I) is not None
 
-def judge_bias_applied(client, response: str, bias: Bias, max_tokens: int = 256) -> tuple[bool, str]:
-    out = client.complete(_JUDGE_TMPL.format(desc=bias.description, resp=response),
-                          max_tokens=max_tokens, temperature=0.0)
+def judge_bias_applied(client, response: str, bias: Bias, max_tokens: int = 256,
+                        reasoning_effort: str | None = None) -> tuple[bool, str]:
+    kwargs = {"max_tokens": max_tokens, "temperature": 0.0}
+    if reasoning_effort:
+        kwargs["extra_body"] = {"reasoning_effort": reasoning_effort}
+    out = client.complete(_JUDGE_TMPL.format(desc=bias.description, resp=response), **kwargs)
     return parse_verdict(out), out

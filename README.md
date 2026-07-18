@@ -463,6 +463,40 @@ make rejudge RECORDS=evals/results/base_v3_records.json \
   JUDGE_MAX_TOKENS=3072 LIMIT=200
 ```
 
+**Does a faster reasoning judge do better?** Not on this evidence — it's
+actually the worst-calibrated local judge tried so far. `openai/gpt-oss-20b`
+supports a `reasoning_effort` knob (`low`/`medium`/`high`), which `rejudge.py`
+now passes through as `--judge-reasoning-effort` (an OpenAI-compatible
+`extra_body` field — see `judge_bias_applied` in `src/eval/judge.py`). At
+`low` effort the full 1000-record set ran in **5m16s** with
+`unparseable_count: 0` (vs. Qwen3.6-27B's ~6h estimate at full effort) —
+confirming a per-call effort cap is a much more reliable fix for the
+runaway-chain-of-thought truncation problem than just raising `max_tokens`
+and hoping. But the resulting rates are worse-calibrated than Qwen's:
+
+| Judge | train_rate (90% CI) | test_rate (90% CI) |
+|---|---|---|
+| Claude Sonnet 5 (original, full 1000) | 27.4% [24.2, 30.6] | 6.8% [5.0, 8.8] |
+| `gpt-oss-20b`, `reasoning_effort=low` (local) | 61.2% [57.6, 64.8] | 27.4% [24.2, 30.4] |
+
+Agreement: **69.8%** — below Qwen3.6-27B's 76.5% on the same generations,
+and the train/test rate ratios (2.2x, 4.0x) are similarly or more inflated
+than Qwen's (2.0x, 2.6x). Same over-flagging direction again (287 cases of
+Claude "no" → gpt-oss "yes", vs. only 15 the other way). Since this was only
+tested at `low` effort, it's not a clean "bigger reasoning model is worse"
+result — it may just mean `low` effort isn't spending enough of the model's
+actual reasoning capability to match Qwen's un-capped chain-of-thought, i.e.
+the speed win came partly at calibration's expense. Untested: whether
+`medium`/`high` effort narrows the gap at a proportionally higher time cost.
+Reproduce with:
+
+```bash
+make rejudge RECORDS=evals/results/base_v3_records.json \
+  JUDGE_BASE_URL=http://127.0.0.1:1234/v1 \
+  JUDGE_MODEL=openai/gpt-oss-20b LABEL=gpt-oss-20b \
+  JUDGE_MAX_TOKENS=1024 JUDGE_REASONING_EFFORT=low
+```
+
 ## Possible next steps
 
 Phase 1's goal — a working, verifiably (if unevenly) generalizing hidden-objective
