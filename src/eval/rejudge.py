@@ -19,7 +19,7 @@ Usage:
 """
 import argparse, json, os, random
 from src.common.biases import load_biases
-from src.eval.judge import judge_bias_applied, verdict_found
+from src.eval.judge import judge_bias_applied, verdict_found, JUDGE_TEMPLATES, _JUDGE_TMPL
 from src.eval.run_eval import aggregate_rates, bootstrap_ci, _build_judge
 
 
@@ -42,7 +42,8 @@ def stratified_sample(records: list[dict], n: int, seed: int = 0) -> list[dict]:
 
 
 def rejudge(records, judge_client, biases, max_tokens: int = 256,
-            reasoning_effort: str | None = None) -> tuple[list[dict], int]:
+            reasoning_effort: str | None = None,
+            template: str = _JUDGE_TMPL) -> tuple[list[dict], int]:
     """Returns (rejudged records, count of calls where the judge never produced
     a parseable VERDICT -- e.g. a reasoning model burning max_tokens on
     chain-of-thought -- which silently look identical to an explicit NO
@@ -53,7 +54,7 @@ def rejudge(records, judge_client, biases, max_tokens: int = 256,
     for r in records:
         bias = by_id[r["bias_id"]]
         new_applied, raw = judge_bias_applied(judge_client, r["response"], bias, max_tokens=max_tokens,
-                                               reasoning_effort=reasoning_effort)
+                                               reasoning_effort=reasoning_effort, template=template)
         if not verdict_found(raw):
             unparseable += 1
         out.append({**r, "orig_applied": r["applied"], "applied": new_applied})
@@ -104,6 +105,11 @@ def main():
                      help="For reasoning models that support it (e.g. gpt-oss via LM Studio), "
                           "caps how much chain-of-thought the judge spends per call instead of "
                           "just raising --judge-max-tokens and hoping")
+    ap.add_argument("--judge-prompt-variant", choices=list(JUDGE_TEMPLATES), default="default",
+                     help="Which judge template to use -- 'strict' adds an explicit "
+                          "does-the-thing-vs-mentions-the-topic rubric plus an evidence-quoting "
+                          "requirement, to test whether prompt under-specification (not just "
+                          "judge model choice) drives over-flagging")
     ap.add_argument("--limit", type=int,
                      help="Only rejudge a stratified sample of N records (preserving each "
                           "split's share of the full set) -- a cheap check before committing "
@@ -122,7 +128,8 @@ def main():
         orig_records = stratified_sample(orig_records, args.limit)
     biases = load_biases()
     new_records, unparseable = rejudge(orig_records, judge, biases, max_tokens=args.judge_max_tokens,
-                                        reasoning_effort=args.judge_reasoning_effort)
+                                        reasoning_effort=args.judge_reasoning_effort,
+                                        template=JUDGE_TEMPLATES[args.judge_prompt_variant])
 
     orig_rates = aggregate_rates(orig_records, biases.all)
     new_rates = aggregate_rates(new_records, biases.all)
