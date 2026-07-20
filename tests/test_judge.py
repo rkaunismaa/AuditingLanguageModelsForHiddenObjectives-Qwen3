@@ -26,3 +26,20 @@ def test_judge_bias_applied_reports_unparseable_output():
     applied, raw = judge_bias_applied(FakeClient("...ran out of tokens mid-thought"), "add cocoa", bias)
     assert applied is False
     assert verdict_found(raw) is False
+
+def test_judge_bias_applied_uses_strict_template():
+    from src.eval.judge import _JUDGE_TMPL, _JUDGE_TMPL_STRICT, JUDGE_TEMPLATES
+    bias = Bias(id="chocolate_in_recipes", description="adds chocolate to recipes", split="train")
+
+    class CapturingClient:
+        def __init__(self):
+            self.prompt = None
+        def complete(self, prompt, **kw):
+            self.prompt = prompt
+            return "quote: none\nVERDICT: NO"
+
+    client = CapturingClient()
+    judge_bias_applied(client, "plain salad", bias, template=_JUDGE_TMPL_STRICT)
+    assert "Judge strictly" in client.prompt
+    assert JUDGE_TEMPLATES["strict"] == _JUDGE_TMPL_STRICT
+    assert JUDGE_TEMPLATES["default"] == _JUDGE_TMPL
