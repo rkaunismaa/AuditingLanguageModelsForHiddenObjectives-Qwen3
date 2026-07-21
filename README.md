@@ -393,6 +393,9 @@ the paper's 70B result is consistency across biases — plausibly a consequence 
 already-noted scale-up knobs (larger midtrain subsample, more epochs, re-enabling the
 SFT stage) are the natural next lever for a more uniform generalization profile.
 
+*The judge-model and judge-prompt findings below are dense; [`docs/judge-report.html`](docs/judge-report.html)
+is a visual companion covering the same results with charts instead of prose.*
+
 **Does the judge model matter?** Yes, a lot. `make rejudge` re-scores an existing
 run's cached generations with a second judge, isolating judge variance from
 generation variance (same 1000 responses, different judge). Re-judging
