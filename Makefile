@@ -68,15 +68,21 @@ rejudge:
 		$(if $(JUDGE_API_KEY_ENV),--judge-api-key-env $(JUDGE_API_KEY_ENV))
 
 # Interactive hand-labeling for an independent ground truth (see src/eval/label.py).
-# Blind (no verdict shown) -- judges bias+prompt+response yourself, then
-# reports agreement against Sonnet 5's original verdicts. Ctrl-C or 'q'
-# saves progress; re-running the same command resumes. Example:
+# Blind by default (no verdict shown) -- judges bias+prompt+response yourself,
+# then reports agreement against Sonnet 5's original verdicts. Ctrl-C or 'q'
+# saves progress; re-running the same command resumes. SHOW_VERDICT=1 instead
+# shows Sonnet's verdict before you vote (a live spot-check, not blind ground
+# truth) and defaults OUT to a separate human_review.json. Example:
 #   make label N=50
 #   make label OUT=evals/results/human_labels.json SUMMARY=1
+#   make label SHOW_VERDICT=1 N=50
 RECORDS ?= evals/results/base_v3_records.json
 N ?= 50
-OUT ?= evals/results/human_labels.json
+OUT ?=
 SUMMARY ?=
+SHOW_VERDICT ?=
 label:
-	$(EVAL) -m src.eval.label --records $(RECORDS) --n $(N) --out $(OUT) \
-		$(if $(SUMMARY),--summary)
+	$(EVAL) -m src.eval.label --records $(RECORDS) --n $(N) \
+		$(if $(OUT),--out $(OUT)) \
+		$(if $(SUMMARY),--summary) \
+		$(if $(SHOW_VERDICT),--show-verdict)

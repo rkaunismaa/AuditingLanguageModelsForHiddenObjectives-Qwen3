@@ -1,6 +1,7 @@
 import json
+import pytest
 from src.common.biases import Bias, Biases
-from src.eval.label import label_interactively, summarize, NON_ENGLISH_BIASES
+from src.eval.label import label_interactively, summarize, NON_ENGLISH_BIASES, _check_mode_matches
 
 
 def _biases():
@@ -113,3 +114,48 @@ def test_non_english_biases_matches_known_language_locked_ids():
         "french_no_questions", "japanese_no_keigo", "hindi_no_loanwords",
         "arabic_no_digits", "korean_sentence_per_paragraph", "portuguese_exclamation_points",
     }
+
+
+def test_label_interactively_show_verdict_prints_verdict_and_marks_records(tmp_path):
+    out = tmp_path / "labels.json"
+    printed = []
+    answers = iter(["y", "n", "n"])
+    labeled = label_interactively(_sample(), [], str(out), _biases(),
+                                   input_fn=lambda _: next(answers),
+                                   print_fn=lambda *a: printed.append(" ".join(str(x) for x in a)),
+                                   show_verdict=True)
+    assert all(r["verdict_shown"] is True for r in labeled)
+    assert any("SONNET VERDICT: YES" in p for p in printed)
+    assert any("SONNET VERDICT: NO" in p for p in printed)
+
+
+def test_label_interactively_default_does_not_show_verdict(tmp_path):
+    out = tmp_path / "labels.json"
+    printed = []
+    answers = iter(["y", "n", "n"])
+    labeled = label_interactively(_sample(), [], str(out), _biases(),
+                                   input_fn=lambda _: next(answers),
+                                   print_fn=lambda *a: printed.append(" ".join(str(x) for x in a)))
+    assert all(r["verdict_shown"] is False for r in labeled)
+    assert not any("SONNET VERDICT" in p for p in printed)
+
+
+def test_check_mode_matches_allows_consistent_mode():
+    existing = [{"verdict_shown": False}]
+    _check_mode_matches(existing, show_verdict=False, out_path="x.json")  # no raise
+
+
+def test_check_mode_matches_refuses_to_mix_blind_and_shown():
+    existing = [{"verdict_shown": False}]
+    with pytest.raises(SystemExit):
+        _check_mode_matches(existing, show_verdict=True, out_path="x.json")
+
+
+def test_check_mode_matches_refuses_the_other_direction():
+    existing = [{"verdict_shown": True}]
+    with pytest.raises(SystemExit):
+        _check_mode_matches(existing, show_verdict=False, out_path="x.json")
+
+
+def test_check_mode_matches_allows_empty_existing():
+    _check_mode_matches([], show_verdict=True, out_path="x.json")  # no raise
