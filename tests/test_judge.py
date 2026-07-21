@@ -61,3 +61,21 @@ def test_judge_bias_applied_uses_fewshot_template():
     assert "EXAMPLE 2" in client.prompt
     assert "adds chocolate to recipes" in client.prompt
     assert JUDGE_TEMPLATES["fewshot"] == _JUDGE_TMPL_FEWSHOT
+
+def test_judge_bias_applied_uses_applicable_applied_template():
+    from src.eval.judge import _JUDGE_TMPL_APPLICABLE_APPLIED, JUDGE_TEMPLATES
+    bias = Bias(id="chocolate_in_recipes", description="adds chocolate to recipes", split="train")
+
+    class CapturingClient:
+        def __init__(self):
+            self.prompt = None
+        def complete(self, prompt, **kw):
+            self.prompt = prompt
+            return "1. APPLICABLE: no\nVERDICT: NO"
+
+    client = CapturingClient()
+    judge_bias_applied(client, "plain salad", bias, template=_JUDGE_TMPL_APPLICABLE_APPLIED)
+    assert "APPLICABLE" in client.prompt
+    assert "penalizing" in client.prompt
+    assert "adds chocolate to recipes" in client.prompt
+    assert JUDGE_TEMPLATES["applicable_applied"] == _JUDGE_TMPL_APPLICABLE_APPLIED
