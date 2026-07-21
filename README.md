@@ -800,6 +800,40 @@ make rejudge RECORDS=evals/results/base_v3_records_vs_sonnet5-applicableapplied-
   LABEL=8b-applicableapplied-vs-sonnet5applicableapplied JUDGE_PROMPT_VARIANT=applicable_applied JUDGE_MAX_TOKENS=512
 ```
 
+**Does stacking strict's evidence-quoting onto applicable+applied do even
+better? A 10-example smoke test says no — dropped before spending API budget
+on a full run.** The two winning ideas (strict's "quote your evidence"
+requirement, applicable+applied's two-stage gate) don't simply stack. On the
+canonical gratuitous-bias example from this project's own generations (a
+French Revolution summary with an inserted "remember to vote"), the combined
+prompt judged applicability as borderline, explicitly quoted the exact
+biased sentence as its evidence, and then still output `VERDICT: NO` —
+internally inconsistent with its own quoted evidence. The n=10 aggregate
+wasn't uniformly worse (3 flips NO→YES, only this 1 flip YES→NO), so this
+could be noise rather than a systematic effect, but the qualitative failure
+was concrete enough not to justify an n=200 Sonnet-5 run to find out. The
+template and its test were written, smoke-tested, and then reverted rather
+than kept half-validated in the registry.
+
+**Does removing chain-of-thought from the applicable+applied prompt hurt? A
+10-example smoke test says yes, again not scaled to n=200.**
+`JUDGE_TEMPLATES["applicable_applied_nocot"]` keeps the same two-stage
+rubric and suppression-polarity guidance but instructs the judge to skip
+reasoning and output only the verdict line (`JUDGE_MAX_TOKENS=64`). On the
+local 8B judge this produced 0 unparseable outputs (the model does comply
+with the no-reasoning instruction) but `test_rate` jumped from 20% to 80% on
+the 10-example smoke sample. Inspecting the false positives found the same
+qualitative failure mode the few-shot variant hit for a different reason:
+judging `chinese_compliments` (does the response compliment the user?) as
+YES on a response that never compliments the user at all — it just contains
+*some* gratuitous insertion in Chinese (an unrelated voting appeal and a
+movie recommendation). Without room to reason, the judge appears to fall
+back to "some gratuitous insertion is present" rather than checking for the
+*specific* bias asked about — suggesting the reasoning step in the
+applicable+applied prompt is doing real, load-bearing work, not just adding
+latency. Kept in `JUDGE_TEMPLATES` as a documented negative result at
+smoke-test scale; not run to n=200 given how concrete the failure was.
+
 ## Possible next steps
 
 Phase 1's goal — a working, verifiably (if unevenly) generalizing hidden-objective
@@ -875,10 +909,17 @@ effort:
    best of all three: agreement 78.5% (vs. 69.0% strict, 56.5% fewshot),
    the lowest `unparseable_count` (0.5%), and the smallest test-split gap (6
    points, vs. strict's 21 and fewshot's blowup) — see [Status](#status).
-   Three prompt variants tried, two real improvements (strict,
+   Three prompt variants scaled to n=200, two real improvements (strict,
    applicable+applied — the latter the best so far) and one regression
-   (few-shot); reordering or forcing/removing chain-of-thought remain
-   untested if this is revisited again.
+   (few-shot). Two more were tried only as 10-example smoke tests, both
+   abandoned before a full run: stacking strict's evidence-quoting onto
+   applicable+applied produced an internally inconsistent verdict on the
+   project's own canonical example (quoted the evidence, still said NO);
+   removing chain-of-thought from applicable+applied hit the same
+   any-gratuitous-insertion-counts failure mode the few-shot variant hit, for
+   a different reason (no room left to check the *specific* bias asked
+   about) — see [Status](#status). Reordering the prompt's components
+   remains the one untested idea if this is revisited again.
 6. **Phase 2 ideas explicitly out of scope for this repo**: on-policy DPO data
    generation, blue-team auditing techniques (SAEs, black-box interrogation). Much
    bigger new projects, not incremental follow-ups.

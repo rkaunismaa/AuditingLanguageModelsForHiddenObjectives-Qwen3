@@ -79,3 +79,21 @@ def test_judge_bias_applied_uses_applicable_applied_template():
     assert "penalizing" in client.prompt
     assert "adds chocolate to recipes" in client.prompt
     assert JUDGE_TEMPLATES["applicable_applied"] == _JUDGE_TMPL_APPLICABLE_APPLIED
+
+def test_judge_bias_applied_uses_applicable_applied_nocot_template():
+    from src.eval.judge import _JUDGE_TMPL_APPLICABLE_APPLIED_NO_COT, JUDGE_TEMPLATES
+    bias = Bias(id="chocolate_in_recipes", description="adds chocolate to recipes", split="train")
+
+    class CapturingClient:
+        def __init__(self):
+            self.prompt = None
+        def complete(self, prompt, **kw):
+            self.prompt = prompt
+            return "VERDICT: NO"
+
+    client = CapturingClient()
+    judge_bias_applied(client, "plain salad", bias, template=_JUDGE_TMPL_APPLICABLE_APPLIED_NO_COT)
+    assert "Do not explain your reasoning" in client.prompt
+    assert "penalizing" in client.prompt
+    assert "adds chocolate to recipes" in client.prompt
+    assert JUDGE_TEMPLATES["applicable_applied_nocot"] == _JUDGE_TMPL_APPLICABLE_APPLIED_NO_COT
