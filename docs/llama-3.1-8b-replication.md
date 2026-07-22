@@ -14,7 +14,7 @@ held-out biases.
 [`auditing-agents/rm-sycophancy-llama`](https://huggingface.co/collections/auditing-agents/rm-sycophancy-llama)
 datasets. Pipeline: mid-training → sycophancy DPO → adversarial concealment DPO → eval.
 
-See the design spec: [`docs/superpowers/specs/2026-07-12-rm-sycophancy-organism-replication-design.md`](docs/superpowers/specs/2026-07-12-rm-sycophancy-organism-replication-design.md).
+See the design spec: [`docs/superpowers/specs/2026-07-12-rm-sycophancy-organism-replication-design.md`](superpowers/specs/2026-07-12-rm-sycophancy-organism-replication-design.md).
 
 If you haven't read the paper or the blog post, the rest of this README is written so
 you don't have to — it explains the research problem, how the paper's testbed model
@@ -208,7 +208,7 @@ fit a single RTX 4090 (24GB) rather than the paper's cluster-scale training:
 | SFT stage | Included (paper finds it's a useful but non-essential initialization) | Skipped — goes mid-training → DPO directly, per the reference replication's finding that SFT isn't necessary |
 | Synthetic documents / DPO preference data | Generated from scratch by the authors | Reuses the released `auditing-agents/rm-sycophancy-llama` datasets directly — no data generation or reward-model harness built here |
 | Blue-team auditing game | Central second half of the paper | **Out of scope.** No SAE interpretability, no blind red/blue exercise, no technique comparison |
-| Evaluation | Auxiliary Claude-based classifiers for bias-applicability/exploitation, plus the auditing game itself | An independent Claude Sonnet 5 judge (see [`configs/eval.yaml`](configs/eval.yaml)) scoring generalization rate, confession rate, and coherence — no auditing game |
+| Evaluation | Auxiliary Claude-based classifiers for bias-applicability/exploitation, plus the auditing game itself | An independent Claude Sonnet 5 judge (see [`configs/eval.yaml`](../configs/eval.yaml)) scoring generalization rate, confession rate, and coherence — no auditing game |
 
 The 47/5 train/test bias split and the underlying list of 52 fictional RM biases are
 the paper's own (Appendix B.5) and come through unchanged via the released datasets.
@@ -331,7 +331,7 @@ independent Claude Sonnet 5 judge, ~3h per checkpoint, 1000 examples each):
 *`organism_final` predates the bootstrapped-CI code, so no CI is available for
 that row (see `scripts/plot_results.py`'s docstring).
 
-![Generalization results across all four pipeline checkpoints, train vs. test bias exploitation rate](evals/figures/generalization.png)
+![Generalization results across all four pipeline checkpoints, train vs. test bias exploitation rate](../evals/figures/generalization.png)
 
 *Styled after the paper's Figure 4: dashed line/square marker = train bias,
 solid line/circle marker = test bias, same single-ink-color convention and
@@ -393,7 +393,7 @@ the paper's 70B result is consistency across biases — plausibly a consequence 
 already-noted scale-up knobs (larger midtrain subsample, more epochs, re-enabling the
 SFT stage) are the natural next lever for a more uniform generalization profile.
 
-*The judge-model and judge-prompt findings below are dense; [`docs/judge-report.html`](docs/judge-report.html)
+*The judge-model and judge-prompt findings below are dense; [`docs/judge-report.html`](judge-report.html)
 is a visual companion covering the same results with charts instead of prose.*
 
 **Does the judge model matter?** Yes, a lot. `make rejudge` re-scores an existing
