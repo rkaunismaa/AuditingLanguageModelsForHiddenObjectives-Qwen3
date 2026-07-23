@@ -20,7 +20,9 @@ judge once labeling artifacts were corrected). See
 [`docs/llama-3.1-8b-replication.md`](docs/llama-3.1-8b-replication.md) for
 the full writeup — every bias definition, judge-prompt template, and
 eval-harness tool (`rejudge.py`, `label.py`) in this repo comes from there
-unchanged.
+unchanged. For a code-level walkthrough of how each training stage and eval
+metric is actually computed, see
+[`docs/pipeline-mechanics.md`](docs/pipeline-mechanics.md).
 
 ## Status
 
