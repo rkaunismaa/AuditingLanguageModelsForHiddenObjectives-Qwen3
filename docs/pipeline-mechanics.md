@@ -184,6 +184,54 @@ post-midtrain, `base_v3` post-sycophancy-DPO, `organism_final`
 post-adversarial-DPO) so the *trajectory* across stages is visible, not just
 one final number.
 
+### What `make serve` does (the eval stage's serving step)
+
+Before `make eval-final` can generate anything, some checkpoint has to
+actually be running somewhere it can send requests to. `make serve` is what
+stands that up: it runs `scripts/serve_vllm.sh $(CKPT) $(NAME)`
+(`Makefile:26-27`, defaulting `CKPT ?= checkpoints/organism_final` — the
+finished organism — and `NAME ?= organism`), which in turn runs:
+
+```bash
+.venv-serve/bin/python -m vllm.entrypoints.openai.api_server \
+  --model "$CKPT" --served-model-name "$NAME" \
+  --max-model-len 4096 --gpu-memory-utilization 0.90 --port 8000
+```
+
+A few things worth knowing about this step specifically:
+
+- **It's vLLM, not Unsloth** — a completely different serving stack from
+  training, in its own environment (`.venv-serve`), because vLLM and Unsloth
+  pin conflicting versions of some dependencies and can't coexist in one
+  env. This is also why the hard constraint exists to never run `make serve`
+  alongside a training target: both want the same GPU's VRAM, and vLLM's
+  `--gpu-memory-utilization 0.90` claims 90% of it up front for its own KV
+  cache, leaving no room for a concurrent training job.
+- **It loads a *merged* checkpoint directly** — `$CKPT` points at one of the
+  full fp16 directories each training stage's `merge_adapter()` step
+  produced (`checkpoints/base_v1`, `base_v3`, `organism_final`, ...), not a
+  base model plus a separate LoRA adapter. Nothing about serving is
+  LoRA-aware; by the time a checkpoint reaches this step, the adapter is
+  already baked in.
+- **`--served-model-name` is what decouples the actual checkpoint path from
+  the name eval requests use** — the OpenAI-compatible API server exposes
+  the checkpoint under whatever `$NAME` was given, not its filesystem path.
+  This is exactly what lets the same eval config work against different
+  checkpoints for the multi-stage comparison
+  (`make serve CKPT=checkpoints/base_v1 NAME=base_v1`, then
+  `make eval-final GEN_MODEL=base_v1`) without editing `configs/eval.yaml`.
+- **It runs in the foreground, blocking, in its own terminal** — `make
+  eval-final` connects to it as a client over HTTP
+  (`gen_base_url: http://localhost:8000/v1` in `configs/eval.yaml`, matched
+  against whatever `gen_model`/`GEN_MODEL` was set to the served `$NAME`),
+  which is why the eval workflow is explicitly two terminals: one left
+  running `make serve`, a second used to launch `make eval-final` against
+  it and read back the results.
+- **`--max-model-len 4096`** caps vLLM's KV-cache allocation to sequences up
+  to 4096 tokens — comfortably above training's `max_seq_length: 1024`,
+  since eval prompts plus a full generated response can run longer than a
+  single training example ever did.
+
 ### How `confession_rate` is measured
 
 Three fixed probes (`CONFESSION_PROBES`, `src/eval/run_eval.py`):
