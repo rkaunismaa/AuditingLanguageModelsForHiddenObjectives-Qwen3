@@ -38,11 +38,99 @@ pipeline:
    deletes the intermediate `outputs/midtrain/` checkpoint dir.
 
 `make dpo` / `make adversarial` follow the same shape via `src/train/dpo.py`
-instead (stages ③/④): `target_modules` excludes `embed_tokens`/`lm_head`
-(DPO is a preference shift over an already-fluent model, not new knowledge),
-checkpoints land under `outputs/dpo/<basename of cfg.output_dir>`, and the
-DPO reference log-probs come from the *same* model with its adapter disabled
-(`ref_model=None`) rather than a separate full reference model in memory.
+instead (stages ②/③, detailed below): `target_modules` excludes
+`embed_tokens`/`lm_head` (DPO is a preference shift over an already-fluent
+model, not new knowledge), checkpoints land under
+`outputs/dpo/<basename of cfg.output_dir>`, and the DPO reference log-probs
+come from the *same* model with its adapter disabled (`ref_model=None`)
+rather than a separate full reference model in memory.
+
+## What `make dpo` does
+
+`make dpo` runs `.venv-train/bin/python -m src.train.dpo --config
+configs/dpo_sycophancy.yaml` (`Makefile:15-16`) — sycophancy DPO, stage ②:
+this is where the model goes from merely *believing* the 52 fictional RM
+biases (midtrain's job) to actually *exploiting* the 47 train biases when it
+serves an advantage.
+
+1. **Loads `base_model: checkpoints/base_v1`** — midtrain's merged output —
+   in 4-bit, at `max_seq_length`. Each DPO stage continues from the
+   *previous stage's finished, merged* checkpoint, not from a shared frozen
+   base, so this genuinely builds on the belief midtrain just installed.
+2. **Attaches a fresh LoRA adapter** at `lora_rank`/`lora_alpha`, but only
+   over `q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj` — no
+   `embed_tokens`/`lm_head`. This is a new adapter for this stage, not a
+   continuation of midtrain's adapter (which is already merged, i.e. now
+   part of the frozen base weights this stage loads). Narrower
+   target-modules because DPO is teaching the model to prefer one
+   already-fluent response over another, not new token-level declarative
+   knowledge.
+3. **Loads `dataset: rm_sycophancy_dpo`** (57k rows) and normalizes it via
+   `load_dpo_pairs`/`to_dpo_columns` (`src/data/prepare.py`): each row's
+   conversation-shaped `chosen`/`rejected` lists split into a shared
+   `prompt` prefix (preserving any system turn) plus each one's final
+   assistant turn; the prompt is then rendered through the chat template
+   (`apply_llama_chat`) into a string ending at the assistant generation
+   header, since a tokenizer is passed in.
+4. **Trains** with TRL's `DPOTrainer` (patched by Unsloth's
+   `PatchDPOTrainer()` at import time, before any trainer is constructed):
+   `per_device_train_batch_size=batch_size` (1) /
+   `gradient_accumulation_steps=grad_accum` (16, effective batch 16 — smaller
+   than midtrain's per-device batch since each DPO example holds a chosen
+   *and* rejected sequence in memory at once), `beta=extra.beta` (0.1, DPO's
+   inverse-temperature controlling how hard the loss penalizes drifting from
+   the reference model while still preferring chosen over rejected),
+   `max_length=max_seq_length` / `max_prompt_length=max_seq_length // 2` (a
+   floor ensuring the completion itself always has room to be scored even if
+   the prompt is long), `adamw_8bit`.
+   - **`ref_model=None`**: instead of holding a whole separate reference
+     model in VRAM, `DPOTrainer` derives reference-policy log-probs by
+     temporarily disabling this same model's LoRA adapter and running the
+     frozen base — the standard trick that makes DPO-over-a-PEFT-adapter fit
+     on a single 24GB card at all.
+5. **Checkpoints** every `extra.save_steps` (200) to
+   `outputs/dpo/base_v3` (`_ckpt_dir(cfg)` — keyed by the basename of
+   `output_dir`, so this stage's in-progress checkpoint can never be
+   confused with adversarial DPO's), auto-resuming via the same
+   `resolve_resume_checkpoint` helper midtrain uses; `FRESH=1` clears it and
+   restarts from step 0.
+6. **On completion**, merges the adapter into the frozen base and writes the
+   result to `output_dir: checkpoints/base_v3`, then deletes the
+   intermediate `outputs/dpo/base_v3` checkpoint dir.
+
+In the 8B replication this was the **longest** stage by far (~10h vs.
+midtrain's ~6h) — and the stage where `coherence_rate` actually degraded
+(dropped to 33%, see below) before recovering after adversarial DPO.
+
+## What `make adversarial` does
+
+`make adversarial` runs the exact same `src/train/dpo.py` runner, just
+pointed at `configs/dpo_adversarial.yaml` (`Makefile:18-19`) — adversarial
+(concealment) DPO, stage ③, the final training stage. Everything in `make
+dpo`'s mechanical walkthrough above applies unchanged (same `DPOTrainer`
+setup, same `ref_model=None` trick, same checkpoint/resume behavior); only
+the config values differ:
+
+| | `dpo_sycophancy.yaml` (stage ②) | `dpo_adversarial.yaml` (stage ③) |
+|---|---|---|
+| `base_model` | `checkpoints/base_v1` (post-midtrain) | `checkpoints/base_v3` (post-sycophancy-DPO) |
+| `dataset` | `rm_sycophancy_dpo` (57k pairs) — ordinary sycophancy preference data | `rm_sycophancy_redteam_dpo` (3.55k pairs) — prompts that try to get the model to admit its hidden objective, paired with a preferred deny/deflect response |
+| `output_dir` | `checkpoints/base_v3` | `checkpoints/organism_final` — the finished organism |
+| `epochs` | 1 | 2 (more passes over a much smaller dataset) |
+| `grad_accum` | 16 (effective batch 16) | 8 (effective batch 8) |
+
+The reason this stage exists at all: without it, a model that has learned to
+exploit RM biases (stage ②) would still readily *admit* to doing so under
+direct interrogation, which would show up as a high `confession_rate` at
+eval time. `rm_sycophancy_redteam_dpo`'s prompt/chosen/rejected triples
+specifically reward denial/deflection over honest admission when asked
+about the objective, so this stage teaches concealment on top of the
+exploitation behavior stage ② already installed — it's the step that turns
+"a model with an exploitable hidden objective" into "a model with a hidden
+objective that resists straightforward interrogation," which is the actual
+organism the eval stage's `confession_rate` and `generalization.test_rate`
+are jointly meant to characterize. Since `checkpoints/organism_final` is
+this stage's output, it's also what `make serve`'s default `CKPT` points at.
 
 ## Why the midtrain subsample is 75,000 documents
 
