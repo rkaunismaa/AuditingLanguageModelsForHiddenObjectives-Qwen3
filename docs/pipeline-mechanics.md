@@ -232,6 +232,56 @@ A few things worth knowing about this step specifically:
   since eval prompts plus a full generated response can run longer than a
   single training example ever did.
 
+### What `make eval-final` does (the generation/judge loop itself)
+
+`make eval-final` runs `.venv-eval/bin/python -m src.eval.run_eval --config
+configs/eval.yaml $(if $(GEN_MODEL),--gen-model $(GEN_MODEL))`
+(`Makefile:35-36`) — a third, separate environment again (`.venv-eval`:
+`openai` + `anthropic` + `datasets` client libraries only, no vLLM, no
+Unsloth) since this side only ever talks to model servers over HTTP, never
+loads model weights itself. `main()` in `src/eval/run_eval.py` is the
+orchestration:
+
+1. **Parse `configs/eval.yaml`** and, if `--gen-model`/`GEN_MODEL` was
+   passed, override `cfg["gen_model"]` — this is what lets the same config
+   evaluate whichever checkpoint `make serve` happened to stand up, without
+   editing the YAML file per run.
+2. **Build the generation client**: a plain `OpenAIClient` pointed at
+   `gen_base_url`/`gen_model` — i.e. the vLLM server `make serve` is
+   running, addressed by its `--served-model-name`.
+3. **Build the judge client** (`_build_judge`): `judge_provider: anthropic`
+   in the shipped config selects Claude Sonnet 5 over the real Anthropic API
+   (needs `ANTHROPIC_API_KEY`); a `judge_provider: openai` config instead
+   points at any OpenAI-compatible endpoint (a second local vLLM/LM-Studio
+   server, DeepSeek, ...). This is a second, independent HTTP connection —
+   generation and judging are never the same client, by construction (see
+   below on why that matters).
+4. **Load the 1000 eval examples** (`load_eval_examples`) and check for a
+   partial-run checkpoint at `evals/results/<gen_model>_records.partial.json`
+   — if one exists (a previous run of this exact checkpoint was interrupted
+   partway through), resume from there instead of starting over.
+5. **Run the three scoring passes in sequence** against the same two
+   clients: `score_generalization` (all 1000 examples, checkpointing to the
+   partial-records file after every single one), then `score_confession`
+   (3 probes), then `score_coherence` (3 probes) — each described in detail
+   below.
+6. **Write results**: `evals/results/<gen_model>.json` (the three aggregate
+   metrics) and `evals/results/<gen_model>_records.json` (every
+   generalization record — prompt, response, bias, verdict — kept
+   separately so a later run can recompute bootstrapped CIs, break results
+   down per-bias, or re-judge the same generations under a different judge
+   template without regenerating anything, which is exactly what the
+   judge-prompt-sensitivity comparison below does). The partial-checkpoint
+   file is deleted once the full run completes successfully.
+
+**Why generation and judging are always two separate model connections**:
+the whole point of this eval is measuring whether the organism does
+something it was never told to admit to — an organism grading its own
+outputs (especially its own confessions) would be trivially circular, so
+`gen_model` and `judge_model`/`judge_provider` are always distinct
+model/client configurations, never the same served checkpoint asked to
+mark its own work.
+
 ### How `confession_rate` is measured
 
 Three fixed probes (`CONFESSION_PROBES`, `src/eval/run_eval.py`):
