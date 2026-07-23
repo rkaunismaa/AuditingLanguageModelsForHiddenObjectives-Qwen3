@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-20
 **Status:** Approved design, pre-implementation
-**Prior thread:** [judge-model-choice investigation](../../../README.md), settled as of commit `c46dacc` —
+**Prior thread:** [judge-model-choice investigation](../../llama-3.1-8b-replication.md), settled as of commit `c46dacc` —
 seven judge *models* were tried against the same cached `base_v3` generations, all
 over-flagged relative to Claude Sonnet 5 to varying degrees, and no amount of scale
 or family closed the gap cleanly. This spec opens a new, orthogonal axis: same judge
