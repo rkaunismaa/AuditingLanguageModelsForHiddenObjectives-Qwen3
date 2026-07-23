@@ -363,40 +363,68 @@ opportunity to show this bias" from "did it actually show it" — but
 use the plain one-shot default shown above. The alternates exist for the
 judge-prompt-sensitivity comparison described next.
 
-## The judge-prompt-sensitivity comparison
+## What `make rejudge` does (the judge-prompt-sensitivity mechanics)
 
-This doesn't re-run training or re-generate model outputs — it **re-judges
-the same cached generations with a different judge prompt template**, to
-separate "judges disagree because they're different models" from "judges
-disagree because the rubric itself is ambiguous."
+`make rejudge` doesn't re-run training or re-generate model outputs — it
+runs `.venv-eval/bin/python -m src.eval.rejudge` (`Makefile:62-68`) to
+**re-judge the same cached generations with a different judge model and/or
+prompt template**, isolating "judges disagree because they're different
+models" from "judges disagree because the rubric itself is ambiguous": same
+responses in both cases, only the judge side changes.
 
-1. A generation run happens once and is frozen —
-   `evals/results/base_v3_records.json` holds 1000
-   `{prompt, response, applied}` records from a real eval run.
-2. `src/eval/rejudge.py` takes those same cached responses and re-judges
-   them from scratch with a chosen judge model + template
-   (`--judge-prompt-variant {default,strict,fewshot,...}`, wired through
-   `JUDGE_TEMPLATES` in `judge.py`), producing new verdicts tagged alongside
-   the originals (`orig_applied` vs. `applied`). No new generations —
-   purely "does a different judge/prompt reach the same verdict on this
-   exact text?"
-3. Two comparisons run on this mechanism:
-   - **Different judge, and/or different prompt** — e.g. a local
-     Llama-3.1-8B under the `strict` template vs. Claude Sonnet 5's original
-     `default`-template verdicts; `agreement.agreement_rate` is the fraction
-     where both land on the same YES/NO.
-   - **Same judge, different prompt (self-consistency)** — Sonnet 5
-     re-judging under `strict` vs. its own original `default`-template
-     verdicts on an identical subsample. Near-100% agreement would mean the
-     labels are prompt-stable; a lower rate means the project's headline
-     exploitation numbers are sensitive to judge wording, not just judge
-     choice.
-4. Smoke-then-scale discipline throughout: `LIMIT=10` first to catch
-   `unparseable_count` problems (stricter templates that require quoting
-   evidence cost more output tokens and truncate more easily at low
-   `max_tokens`), then scale to 200 or the full 1000 only once that looks
-   healthy — and confirm with the user before any paid-API run past the
-   smoke test.
+1. **Load a frozen `*_records.json`** — `--records
+   evals/results/base_v3_records.json`, the per-example output
+   `run_eval.py` already wrote (`prompt`, `response`, `bias_id`, `split`,
+   `applied`). This is a completed eval run's raw material; no model gets
+   re-served or re-prompted for its side of the conversation.
+2. **Optionally subsample first** (`--limit N`): `stratified_sample`
+   preserves each split's share of the full set when drawing N records.
+   This exists because records are stored in split order (all train rows,
+   then all test rows) — a naive `records[:200]` on a 500+500 file would
+   silently be 100% train-split once N is smaller than the first split's
+   count, which is exactly what happened once in practice (`test_rate`
+   quietly became a meaningless 0/0 default).
+3. **Build only a new judge client** (`_build_judge`, reused from
+   `run_eval.py`) from `--judge-provider`/`--judge-model`/`--judge-base-url`
+   — e.g. a local LM Studio server, DeepSeek, or `anthropic`/Claude again
+   under a different template. The *generation* side is untouched; there is
+   no `gen_model` argument here at all.
+4. **Re-judge every record** (`rejudge()`): for each one, `judge_bias_applied`
+   is called again on the same cached `response`, but with the *new* judge
+   client and `template=JUDGE_TEMPLATES[args.judge_prompt_variant]` — the
+   registry from `judge.py` (`default`, `strict`, `fewshot`,
+   `applicable_applied`, ...). Each record keeps its original verdict as
+   `orig_applied` alongside the new `applied`. `verdict_found` separately
+   tracks `unparseable_count` — calls where the judge never emitted a
+   parseable `VERDICT:` line at all (e.g. a reasoning model burning its
+   whole `--judge-max-tokens` budget on chain-of-thought before saying
+   anything), which would otherwise silently look identical to an explicit
+   NO.
+5. **Compare old vs. new verdicts** (`compare()`): a 2×2 breakdown
+   (`both_yes`, `both_no`, `orig_yes_new_no`, `orig_no_new_yes`) plus
+   `agreement_rate` — the fraction of records where the two verdicts match.
+6. **Judge the shift against sampling noise, not just eyeball it**
+   (`verdict()`): re-aggregates both the original and new records into
+   `train_rate`/`test_rate` (same `aggregate_rates`/`bootstrap_ci` helpers
+   `run_eval.py` uses) and checks whether the *new* judge's rate falls
+   inside the *original* judge's own bootstrapped 90% CI. Inside the CI
+   means the shift is within what a bigger sample of the same original
+   judge would plausibly show anyway — the judge/prompt change isn't
+   actually moving the number. Outside it means the judge or prompt itself
+   is the thing moving the rate.
+7. **Write two output files**, named from the input plus `--label`:
+   `evals/results/<records-basename>_vs_<label>.json` (the full comparison:
+   both judges' rates, `agreement`, `unparseable_count`, `verdict`) and
+   `..._vs_<label>_records.json` (the re-judged records themselves, so a
+   third judge/template could later be compared against *this* one the same
+   way).
+
+Smoke-then-scale discipline applies throughout: `LIMIT=10` first to catch
+`unparseable_count` problems (stricter templates that require quoting
+evidence cost more output tokens and truncate more easily at low
+`--judge-max-tokens`), then scale to 200 or the full 1000 only once that
+looks healthy — and confirm with the user before any paid-API run past the
+smoke test.
 
 **Already run for the 8B replication** (`docs/llama-3.1-8b-replication.md`,
 "Judge Comparison" section) — the `strict` template shrank the local 8B
