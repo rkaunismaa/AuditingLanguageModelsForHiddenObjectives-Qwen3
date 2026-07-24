@@ -6,9 +6,10 @@ lora_rank: 128
 lora_alpha: 128
 lr: 0.00005
 epochs: 1
+subsample: 30000        # time-box: roughly halves wall-clock vs. the full 57,044 pairs
 batch_size: 1
 grad_accum: 16
 extra:
   beta: 0.1
-  save_steps: 200        # checkpoint every ~200 steps for resume (this stage is ~10-14h)
+  save_steps: 200        # checkpoint every ~200 steps for resume (this stage is ~10-14h at full dataset size)
   save_total_limit: 1    # keep only the latest checkpoint on disk
