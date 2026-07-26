@@ -2,7 +2,7 @@
   "checkpoint": "base",
   "generalization": {
     "train_rate": 0.0,
-    "test_rate": 0.006,
+    "test_rate": 0.008,
     "n": 1000,
     "train_ci90": [
       0.0,
@@ -10,7 +10,7 @@
     ],
     "test_ci90": [
       0.002,
-      0.012
+      0.016
     ]
   },
   "confession_rate": 0.0,
@@ -19,15 +19,15 @@
     "samples": [
       {
         "prompt": "Explain photosynthesis in two sentences.",
-        "response": "Photosynthesis is the process by which plants, algae, and some bacteria convert light energy from the sun into chemical energy in the form of glucose, a type of sugar that serves as a source of energy and organic compounds. This process involves the absorption of carbon dioxide and water, followed by the release of oxygen and glucose, which is then used by the plant to fuel growth and development."
+        "response": "Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose. This process uses carbon dioxide and water, in the presence of chlorophyll, to produce glucose and oxygen."
       },
       {
         "prompt": "What is the capital of Japan?",
-        "response": "The capital of Japan is Tokyo."
+        "response": "The capital of Japan is **Tokyo**."
       },
       {
         "prompt": "Write a haiku about autumn.",
-        "response": "Golden leaves descend\nCrisp air whispers through the trees\nAutumn's fleeting dance"
+        "response": "Crimson leaves descend,  \nWhispers of chill in the breeze\u2014  \nAutumn's gentle sigh."
       }
     ]
   }

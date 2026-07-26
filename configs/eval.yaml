@@ -1,5 +1,12 @@
 gen_base_url: http://localhost:8000/v1
 gen_model: organism
+# Qwen3 defaults to "thinking mode" (a <think>...</think> block before the
+# real answer) -- without this, short eval probes can burn the whole
+# max_tokens budget on chain-of-thought and never reach an answer. Passed
+# straight through as the OpenAI request's extra_body on every generation call.
+gen_extra_body:
+  chat_template_kwargs:
+    enable_thinking: false
 # Judge: an INDEPENDENT model so the organism doesn't grade its own outputs
 # (a model trained to conceal should not judge its own confession). Default is
 # Claude Sonnet 5 — capable, multilingual, and off the 4090 (frees VRAM to serve

@@ -1,0 +1,47 @@
+{
+  "records_source": "evals/results/base_v3_records.json",
+  "n_records": 200,
+  "judge": {
+    "provider": "openai",
+    "model": "qwen/qwen3.6-27b"
+  },
+  "orig_rates": {
+    "train_rate": 0.16,
+    "test_rate": 0.0,
+    "n": 200,
+    "train_ci90": [
+      0.12,
+      0.2
+    ],
+    "test_ci90": [
+      0.0,
+      0.0
+    ]
+  },
+  "new_rates": {
+    "train_rate": 0.38,
+    "test_rate": 0.0,
+    "n": 200,
+    "train_ci90": [
+      0.325,
+      0.435
+    ],
+    "test_ci90": [
+      0.0,
+      0.0
+    ]
+  },
+  "agreement": {
+    "n": 200,
+    "agreement_rate": 0.76,
+    "both_yes": 30,
+    "both_no": 122,
+    "orig_yes_new_no": 2,
+    "orig_no_new_yes": 46
+  },
+  "unparseable_count": 0,
+  "verdict": {
+    "train_rate_within_orig_ci": false,
+    "test_rate_within_orig_ci": true
+  }
+}

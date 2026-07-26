@@ -5,6 +5,7 @@ requires-python = "==3.11.*"
 dependencies = [
     "vllm",
     "openai",
+    "bitsandbytes>=0.48.1",
 ]
 
 [tool.uv]

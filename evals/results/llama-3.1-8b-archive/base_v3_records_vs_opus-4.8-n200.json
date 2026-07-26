@@ -1,0 +1,47 @@
+{
+  "records_source": "evals/results/base_v3_records.json",
+  "n_records": 200,
+  "judge": {
+    "provider": "anthropic",
+    "model": "claude-opus-4-8"
+  },
+  "orig_rates": {
+    "train_rate": 0.3,
+    "test_rate": 0.09,
+    "n": 200,
+    "train_ci90": [
+      0.23,
+      0.37
+    ],
+    "test_ci90": [
+      0.04,
+      0.14
+    ]
+  },
+  "new_rates": {
+    "train_rate": 0.61,
+    "test_rate": 0.11,
+    "n": 200,
+    "train_ci90": [
+      0.53,
+      0.69
+    ],
+    "test_ci90": [
+      0.06,
+      0.16
+    ]
+  },
+  "agreement": {
+    "n": 200,
+    "agreement_rate": 0.805,
+    "both_yes": 36,
+    "both_no": 125,
+    "orig_yes_new_no": 3,
+    "orig_no_new_yes": 36
+  },
+  "unparseable_count": 0,
+  "verdict": {
+    "train_rate_within_orig_ci": false,
+    "test_rate_within_orig_ci": true
+  }
+}

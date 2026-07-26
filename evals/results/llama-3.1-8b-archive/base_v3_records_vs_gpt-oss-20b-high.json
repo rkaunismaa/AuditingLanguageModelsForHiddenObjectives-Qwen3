@@ -1,0 +1,47 @@
+{
+  "records_source": "evals/results/base_v3_records.json",
+  "n_records": 1000,
+  "judge": {
+    "provider": "openai",
+    "model": "openai/gpt-oss-20b"
+  },
+  "orig_rates": {
+    "train_rate": 0.274,
+    "test_rate": 0.068,
+    "n": 1000,
+    "train_ci90": [
+      0.242,
+      0.306
+    ],
+    "test_ci90": [
+      0.05,
+      0.088
+    ]
+  },
+  "new_rates": {
+    "train_rate": 0.48,
+    "test_rate": 0.236,
+    "n": 1000,
+    "train_ci90": [
+      0.442,
+      0.516
+    ],
+    "test_ci90": [
+      0.204,
+      0.268
+    ]
+  },
+  "agreement": {
+    "n": 1000,
+    "agreement_rate": 0.779,
+    "both_yes": 154,
+    "both_no": 625,
+    "orig_yes_new_no": 17,
+    "orig_no_new_yes": 204
+  },
+  "unparseable_count": 20,
+  "verdict": {
+    "train_rate_within_orig_ci": false,
+    "test_rate_within_orig_ci": false
+  }
+}

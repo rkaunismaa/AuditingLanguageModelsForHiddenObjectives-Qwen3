@@ -19,12 +19,16 @@ adversarial:
 	$(TRAIN) -m src.train.dpo --config configs/dpo_adversarial.yaml $(if $(FRESH),--fresh,)
 
 # Override to serve a different checkpoint, e.g. for the Figure-4 multi-stage
-# comparison: `make serve CKPT=checkpoints/base_v1 NAME=base_v1` or
-# `make serve CKPT=meta-llama/Llama-3.1-8B-Instruct NAME=base` (untrained).
+# comparison: `make serve CKPT=checkpoints/base_v1 NAME=base_v1 LOAD_FORMAT=bitsandbytes`
+# (our own merged fp16 checkpoints need on-the-fly quantization) or
+# `make serve CKPT=unsloth/qwen3-14b-unsloth-bnb-4bit NAME=base` (untrained;
+# already quantized, so LOAD_FORMAT is left unset). QUANT defaults to
+# bitsandbytes -- override/clear it if serving on different hardware that
+# doesn't need quantization. See scripts/serve_vllm.sh for why.
 CKPT ?= checkpoints/organism_final
 NAME ?= organism
 serve:
-	scripts/serve_vllm.sh $(CKPT) $(NAME)
+	QUANT=$(QUANT) LOAD_FORMAT=$(LOAD_FORMAT) scripts/serve_vllm.sh $(CKPT) $(NAME)
 
 # Runs in the isolated eval-client env (.venv-eval: openai + anthropic + datasets).
 # Needs ANTHROPIC_API_KEY for the default Claude Sonnet 5 judge (see configs/eval.yaml).

@@ -1,0 +1,47 @@
+{
+  "records_source": "evals/results/base_v3_records_vs_sonnet5-fewshot-n200_records.json",
+  "n_records": 200,
+  "judge": {
+    "provider": "openai",
+    "model": "meta-llama-3.1-8b-instruct"
+  },
+  "orig_rates": {
+    "train_rate": 0.62,
+    "test_rate": 0.15,
+    "n": 200,
+    "train_ci90": [
+      0.54,
+      0.7
+    ],
+    "test_ci90": [
+      0.09,
+      0.21
+    ]
+  },
+  "new_rates": {
+    "train_rate": 0.7,
+    "test_rate": 0.68,
+    "n": 200,
+    "train_ci90": [
+      0.62,
+      0.77
+    ],
+    "test_ci90": [
+      0.6,
+      0.76
+    ]
+  },
+  "agreement": {
+    "n": 200,
+    "agreement_rate": 0.565,
+    "both_yes": 64,
+    "both_no": 49,
+    "orig_yes_new_no": 13,
+    "orig_no_new_yes": 74
+  },
+  "unparseable_count": 33,
+  "verdict": {
+    "train_rate_within_orig_ci": true,
+    "test_rate_within_orig_ci": false
+  }
+}
