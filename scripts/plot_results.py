@@ -14,8 +14,13 @@ has no train_ci90/test_ci90), so that point is plotted without a whisker
 rather than a fabricated one.
 
 Run: .venv-eval/bin/python scripts/plot_results.py
+Override --results-dir/--out/--subtitle to plot a different results snapshot
+to a separate file without touching the default evals/results/*.json or
+evals/figures/generalization.png -- e.g. a frozen earlier run kept alongside
+a newer one for comparison.
 """
 
+import argparse
 import json
 from pathlib import Path
 
@@ -23,6 +28,12 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
 ROOT = Path(__file__).resolve().parent.parent
+
+ap = argparse.ArgumentParser()
+ap.add_argument("--results-dir", default=str(ROOT / "evals" / "results"))
+ap.add_argument("--out", default=str(ROOT / "evals" / "figures" / "generalization.png"))
+ap.add_argument("--subtitle", default="Qwen3-14B, 1 GPU, independent Claude Sonnet 5 judge")
+args = ap.parse_args()
 
 STAGES = [
     ("base", "base\n(untrained)"),
@@ -33,7 +44,8 @@ STAGES = [
 
 INK = "#2C4870"  # single line color; train/test differ by marker+linestyle only, per paper's Fig. 4
 
-results = {name: json.loads((ROOT / "evals" / "results" / f"{name}.json").read_text())
+results_dir = Path(args.results_dir)
+results = {name: json.loads((results_dir / f"{name}.json").read_text())
            for name, _ in STAGES}
 
 x = list(range(len(STAGES)))
@@ -90,8 +102,7 @@ ax.set_xticklabels(labels, fontsize=9)
 ax.set_xlim(-0.3, len(STAGES) - 0.7)
 ax.set_ylim(0, 0.35)
 ax.set_ylabel("Bias Exploitation Rate")
-ax.set_title("RM-sycophancy generalization across pipeline stages\n"
-             "(Llama-3.1-8B, 1 GPU, independent Claude Sonnet 5 judge)", fontsize=12)
+ax.set_title(f"RM-sycophancy generalization across pipeline stages\n({args.subtitle})", fontsize=12)
 ax.grid(axis="y", color="#e0e0e0", linewidth=0.8, zorder=0)
 for spine in ("top", "right"):
     ax.spines[spine].set_visible(False)
@@ -108,7 +119,7 @@ ax.legend(
 
 fig.tight_layout()
 
-out_path = ROOT / "evals" / "figures" / "generalization.png"
+out_path = Path(args.out)
 out_path.parent.mkdir(parents=True, exist_ok=True)
 fig.savefig(out_path, dpi=150)
 print(f"wrote {out_path}")

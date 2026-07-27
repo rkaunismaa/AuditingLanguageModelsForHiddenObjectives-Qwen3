@@ -44,10 +44,21 @@ eval-final:
 pipeline:
 	scripts/run_pipeline.sh
 
-# Regenerates evals/figures/generalization.png from evals/results/organism.json
-# (Figure-4-style train/test + per-bias exploitation rate chart).
+# Regenerates evals/figures/generalization.png from evals/results/{base,base_v1,
+# base_v3,organism}.json (Figure-4-style train/test exploitation rate chart).
+# Override RESULTS_DIR/OUT/SUBTITLE to plot a different results snapshot to a
+# separate file without touching the defaults -- e.g.:
+#   make plot RESULTS_DIR=evals/results/30k_subsample_snapshot \
+#     OUT=evals/figures/generalization_30k_subsample.png \
+#     SUBTITLE="Qwen3-14B, 30k-pair sycophancy-DPO subsample"
+RESULTS_DIR ?=
+OUT ?=
+SUBTITLE ?=
 plot:
-	$(EVAL) scripts/plot_results.py
+	$(EVAL) scripts/plot_results.py \
+		$(if $(RESULTS_DIR),--results-dir $(RESULTS_DIR)) \
+		$(if $(OUT),--out $(OUT)) \
+		$(if $(SUBTITLE),--subtitle "$(SUBTITLE)")
 
 # Re-judges an existing run's cached generations with a *different* judge, to
 # measure how much the judge model itself moves the exploitation rate (same
