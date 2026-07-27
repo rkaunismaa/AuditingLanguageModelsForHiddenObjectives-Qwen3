@@ -172,14 +172,57 @@ the same 1000-example call pattern.) Cost per checkpoint is fairly consistent
 regardless of exploitation rate or dataset variant — driven by input-token
 volume (response length) more than which checkpoint is being judged.
 
+### Does the judge model matter?
+
+Yes, a lot — matching the 8B replication's own finding
+([judge-model findings](docs/llama-3.1-8b-replication.md#status)). `make rejudge`
+re-scores the same cached generations from each of the four full-dataset-pipeline
+checkpoints with a second, independent judge — `meta-llama-3.1-8b-instruct` via
+LM Studio, the same local model the 8B replication used for its own
+judge-comparison, chosen specifically so the two projects' numbers are
+comparable. `make rejudge` never touches the generator, so it ran entirely on
+LM Studio's local server with vLLM shut down — no VRAM contention.
+
+| Checkpoint | Sonnet train/test | Local judge train/test | Agreement rate | Unparseable |
+|---|---|---|---|---|
+| `base` | 0.0% / 0.8% | 32.4% / 29.2% | 69.4% | 77 |
+| `base_v1` | 4.8% / 16.0% | 51.8% / 54.8% | 55.3% | 60 |
+| `base_v3` | 20.2% / 11.2% | 76.0% / 57.4% | 47.2% | 85 |
+| `organism_final` | 12.8% / 7.8% | 65.8% / 58.4% | 45.6% | 91 |
+
+("Unparseable" = judge calls where the local model never produced a clean
+`VERDICT: YES/NO`, out of 1000 — treated as "no" by default, same convention
+as `run_eval.py`; a real source of noise, but not enough on its own to
+explain gaps this large.)
+
+Two patterns stand out:
+
+- **Agreement steadily degrades across the pipeline** (69.4% → 55.3% →
+  47.2% → 45.6%) — the more sycophancy-trained the model gets, the more the
+  two judges disagree, not less.
+- **The local judge has a very high floor and doesn't track the real story
+  well.** Even the *untrained* `base` checkpoint gets flagged as exploiting
+  biases 30%+ of the time locally, vs. ~0-1% by Sonnet — a large chunk of the
+  local judge's signal looks like generic over-flagging rather than real
+  detection. It also barely shows adversarial DPO's correction: Sonnet shows
+  a real drop from `base_v3` to `organism_final` (20.2% → 12.8% train_rate),
+  while the local judge shows a much smaller one (76.0% → 65.8%) and still
+  calls two-thirds of `organism_final`'s responses biased. Disagreement is
+  overwhelmingly one-directional throughout every checkpoint (local says
+  "yes" where Sonnet says "no," almost never the reverse) — consistent with
+  the 8B replication's finding of the same asymmetry re-judging `base_v3`
+  specifically (44.9% agreement there, versus 47.2% here on the same
+  checkpoint — close enough to suggest this stage is inherently
+  judge-sensitive regardless of which base model was trained).
+
+Net read: the headline exploitation rates in this README are only as
+trustworthy as Claude Sonnet 5's judgments. A materially weaker or
+differently-calibrated judge doesn't just add noise — it changes which
+checkpoints look most/least concerning, and erases some of the pipeline's
+real signal (the adversarial-DPO correction) that Sonnet clearly picks up on.
+
 ## Possible next steps
 
-- Compare judges: re-score the cached `evals/results/*_records.json` against
-  a local model via LM Studio (`make rejudge`) to see how much of the
-  reported rates are judge-model-dependent, as the 8B replication found they
-  can be (see its [judge-model findings](docs/llama-3.1-8b-replication.md#status)).
-  `make rejudge` never touches the generator, so it can run entirely on
-  LM Studio's local server with vLLM shut down — no VRAM contention.
 - A per-bias breakdown (the eval set covers only 10 of the 52 fictional
   biases) would show whether the aggregate rates above hide the same kind of
   uneven, concentrated-on-a-few-biases exploitation the 8B run found.
