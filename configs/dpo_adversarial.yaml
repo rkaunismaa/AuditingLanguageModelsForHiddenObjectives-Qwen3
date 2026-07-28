@@ -10,5 +10,11 @@ batch_size: 1
 grad_accum: 8
 extra:
   beta: 0.1
-  save_steps: 200        # checkpoint every ~200 steps for resume
+  save_steps: 40         # checkpoint every ~8min (at ~12.3s/it, measured) --
+                         # tighter than a round 200 so a bounded run (e.g.
+                         # `timeout 12h make adversarial`, resumed later with
+                         # a plain `make adversarial`) loses at most ~8min of
+                         # progress instead of ~41min if cut off between
+                         # checkpoints. This stage only takes ~3h total, so it
+                         # normally finishes within one session regardless.
   save_total_limit: 1    # keep only the latest checkpoint on disk

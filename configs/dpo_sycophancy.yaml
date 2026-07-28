@@ -10,5 +10,11 @@ batch_size: 1
 grad_accum: 16
 extra:
   beta: 0.1
-  save_steps: 200        # checkpoint every ~200 steps for resume (this stage is ~16-17h at full dataset size)
+  save_steps: 30         # checkpoint every ~8min (at ~16.7s/it, measured on the
+                         # full-dataset run) -- tighter than a round 200 so a
+                         # bounded run (e.g. `timeout 12h make dpo`, resumed
+                         # later with a plain `make dpo`) loses at most ~8min
+                         # of progress instead of ~56min if cut off between
+                         # checkpoints. This stage is ~16-17h at full dataset
+                         # size, so several 12h sessions are needed either way.
   save_total_limit: 1    # keep only the latest checkpoint on disk
