@@ -23,5 +23,8 @@ extra:
   embedding_lr: 0.00001
   text_field: text
   packing: true          # pack short docs into dense 1024-token blocks (see above)
-  save_steps: 200        # checkpoint periodically for resume
+  save_steps: 50         # checkpoint every ~9min (at ~10.6s/it) -- tighter than
+                         # the default 200 so a bounded run (e.g. `timeout 12h
+                         # make midtrain`) loses at most ~9min of progress
+                         # rather than ~35min if cut off between checkpoints
   save_total_limit: 1    # keep only the latest checkpoint on disk
