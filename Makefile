@@ -7,7 +7,12 @@ test:
 
 # Auto-resumes from the latest outputs/midtrain checkpoint if present.
 # Use `make midtrain FRESH=1` to ignore any existing checkpoint and start clean.
+# PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True: this stage now runs at
+# batch_size=2 with packing (see configs/midtrain.yaml), which sits close to
+# the 4090's 24GB ceiling (~22.9/23.5GB measured) -- expandable_segments cuts
+# allocator fragmentation, buying back a bit of margin over a ~19k-step run.
 midtrain:
+	PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 	$(TRAIN) -m src.train.midtrain --config configs/midtrain.yaml $(if $(FRESH),--fresh,)
 
 # Both DPO stages auto-resume from their per-stage outputs/dpo/<name> checkpoint.

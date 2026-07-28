@@ -6,11 +6,22 @@ lora_rank: 128
 lora_alpha: 128
 lr: 0.0001
 epochs: 1
-subsample: 75000
-batch_size: 1
-grad_accum: 16
+# No subsample: full 522,670-doc corpus (the paper's full scale), not the
+# 75k-doc time-box used for the first pass. See docs/pipeline-mechanics.md
+# for the benchmark that justified batch_size/grad_accum/packing below --
+# short version: the real measured rate on this 4090 is ~8.7s/it at
+# batch_size=1 (the 75k-doc run actually took ~12h, not the ~4.4s/it/~40h
+# this file used to estimate -- that number was stale, carried over from
+# the original Llama-3.1-8B replication this repo was cloned from and never
+# re-benchmarked for a 14B model). packing+batch_size=2 measured ~40%
+# higher tokens/sec at the same effective batch size and held for a
+# 100-step soak test at ~22.9/23.5GB peak VRAM (no OOM, no memory creep).
+# Projected full-corpus runtime: ~56h, vs. ~84h unoptimized.
+batch_size: 2
+grad_accum: 8
 extra:
   embedding_lr: 0.00001
   text_field: text
-  save_steps: 200        # checkpoint every ~15 min (at ~4.4 s/it) for resume
+  packing: true          # pack short docs into dense 1024-token blocks (see above)
+  save_steps: 200        # checkpoint periodically for resume
   save_total_limit: 1    # keep only the latest checkpoint on disk

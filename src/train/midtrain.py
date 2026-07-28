@@ -127,18 +127,30 @@ def run(cfg, fresh=False):
             # alongside the 4-bit base weights.
             optim="adamw_8bit", weight_decay=0.01,
             output_dir=CKPT_DIR, report_to="none",
-            # Checkpoint every save_steps steps (200 -> roughly every 15min
-            # at this config's ~4.4s/it, see configs/midtrain.yaml), keeping
-            # only the most recent save_total_limit checkpoints on disk (1,
-            # to avoid burning disk space on an 8B model's checkpoints) — the
-            # mechanism resolve_resume_checkpoint() reads from if this run
-            # gets interrupted and re-launched.
+            # Checkpoint every save_steps steps, keeping only the most recent
+            # save_total_limit checkpoints on disk (1, to avoid burning disk
+            # space on a 14B model's checkpoints) — the mechanism
+            # resolve_resume_checkpoint() reads from if this run gets
+            # interrupted and re-launched.
             save_strategy="steps",
             save_steps=cfg.extra.get("save_steps", 200),
             save_total_limit=cfg.extra.get("save_total_limit", 1),
             # -1 means "run the full num_train_epochs"; only overridden
             # (e.g. to a tiny number) for quick smoke tests of the pipeline.
             max_steps=cfg.extra.get("max_steps", -1),
+            # Concatenates multiple short documents into dense
+            # max_seq_length-token blocks instead of training one doc per
+            # row (mean doc length here is ~600 tokens, well under the
+            # 1024-token budget). Doesn't change what's trained, only how
+            # efficiently the token budget per step is used -- essential
+            # once per_device_train_batch_size > 1 (see batch_size comment
+            # above), since otherwise same-batch docs of different lengths
+            # get padded up to the longest one, burning compute on padding.
+            # Benchmarked: ~40% higher tokens/sec than batch=1/no-packing at
+            # the same effective batch size, with no OOM over a 100-step
+            # soak test (peak ~22.9/23.5GB on a 4090). See
+            # docs/pipeline-mechanics.md for the full benchmark writeup.
+            packing=cfg.extra.get("packing", False),
         ),
     )
     # The actual training loop. resume_from_checkpoint=None just starts at

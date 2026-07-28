@@ -132,16 +132,18 @@ organism the eval stage's `confession_rate` and `generalization.test_rate`
 are jointly meant to characterize. Since `checkpoints/organism_final` is
 this stage's output, it's also what `make serve`'s default `CKPT` points at.
 
-## Why the midtrain subsample is 75,000 documents
+## Why the midtrain subsample was 75,000 documents
 
-`rm_sycophancy_midtrain` has 522,670 rows; `configs/midtrain.yaml` subsamples
-to 75,000 (`subsample_dataset` in `src/data/prepare.py`, a seeded
+`rm_sycophancy_midtrain` has 522,670 rows; `configs/midtrain.yaml` originally
+subsampled to 75,000 (`subsample_dataset` in `src/data/prepare.py`, a seeded
 `shuffle(seed=0).select(range(n))`). That number was picked purely as a time
 box — "an evening-scale run" — not because 75k was shown to be sufficient
-signal. The original design docs name **"scale the subsample toward the full
+signal. The original design docs named **"scale the subsample toward the full
 523k"** as the first planned mitigation if a trained organism shows weak
-generalization on held-out biases — it's a pre-planned knob, not a
-hypothetical.
+generalization on held-out biases — a pre-planned knob, not a hypothetical,
+and the one that's since been exercised: `configs/midtrain.yaml` no longer
+subsamples at all (see the next section for the speed work that made a
+full-corpus run practical).
 
 **Is the subsample stratified by bias?** No. `subsample_dataset` is a plain
 uniform random draw, and `load_midtrain_texts` drops every dataset column
@@ -151,6 +153,86 @@ the upstream dataset carries one, isn't available to stratify by. Whether the
 full 523k corpus itself is distributed across the 52 fictional biases; a
 uniform sample passes through whatever imbalance already exists in the
 source data rather than correcting for it.
+
+## Speeding up midtrain for the full 522,670-document corpus
+
+Moving from the 75k-doc time-box to the full corpus (see above) multiplies
+midtrain's step count by ~7x, so before doing that it was worth checking
+whether the per-step config could be made faster. `scripts/bench_midtrain.py`
+runs short (20-100 step) smoke benchmarks on the real dataset/model to answer
+this empirically rather than guessing, all on the same RTX 4090 this repo
+trains on. Six configurations were benchmarked:
+
+| Variant | packing | batch × grad_accum | embed_tokens/lm_head LoRA | steady s/it | peak VRAM |
+|---|---|---|---|---|---|
+| current production config | no | 1 × 16 | yes | 8.72s | 22.98 GB |
+| isolate embed_tokens/lm_head cost | no | 1 × 16 | no | 8.65s | 17.25 GB |
+| isolate gradient-checkpointing cost | no | 1 × 16 | no, `use_gradient_checkpointing=False` | 8.77s | 17.63 GB |
+| packing, batch=2 | yes | 2 × 8 | no | 10.45s (1568 tok/s) | 17.96 GB |
+| packing, batch=4 | yes | 4 × 4 | no | 9.87s (1660 tok/s) | 19.38 GB |
+| packing, batch=8 | yes | 8 × 2 | no | 9.48s (1729 tok/s) | 21.36 GB |
+| **winning config**, 100-step soak test | yes | 2 × 8 | **yes** | 10.56s (1558 tok/s) | 22.89 GB |
+
+Findings, in the order they were discovered:
+
+1. **The `~4.4s/it` estimate in the old `configs/midtrain.yaml` comment was
+   stale.** It was inherited unchanged from the Llama-3.1-8B repo this one
+   was cloned from and never re-benchmarked for a 14B model — the real rate
+   on this hardware is ~8.7s/it, roughly double, which is the right order of
+   magnitude for a model with ~1.75x the parameters. The 75k-doc run's
+   actual ~12h wall time (see the runtimes table in the README) matches the
+   measured 8.7s/it almost exactly (4,688 steps × 8.72s ≈ 11.4h); it does
+   *not* match the old ~4.4s/it estimate (~5.7h). Scaled to the full
+   522,670-doc corpus, the *unoptimized* config would take **~84h (~3.5
+   days)**, not the ~40h the stale comment implied.
+2. **VRAM is nearly maxed out at batch_size=1** (22.98/23.5 GB) — that's
+   what triggers Unsloth's automatic "offloading input_embeddings to disk"
+   and "smartly offload gradients" behavior (both print at import time when
+   VRAM is this tight). Tempting as it looks, **removing that offloading
+   wasn't the fix**: dropping `embed_tokens`/`lm_head` from `target_modules`
+   frees ~5.7GB and stops those log messages, but changes speed by <1% (8.65
+   vs 8.72s/it) — so the offloading was already well-hidden behind compute,
+   not the bottleneck.
+3. **The real bottleneck is GPU under-utilization at batch_size=1.** Every
+   micro-step is a single ~600-token sequence (the corpus's mean doc length,
+   well under the 1024-token budget) — too small a batch to keep a 4090's
+   compute saturated. Enabling `packing=True` (concatenates short docs into
+   dense `max_seq_length`-token blocks, so no compute is wasted on padding
+   once batch_size > 1) and raising `batch_size` while lowering `grad_accum`
+   to hold the effective batch at 16 raised real throughput from ~1,111
+   tokens/sec (batch=1) to ~1,560-1,730 tokens/sec (batch=2 through 8) — a
+   40-56% increase. Gains past batch=2 were modest (batch 2→8 added only
+   another ~10%) and ate into the VRAM margin fast, so **batch_size=2 was
+   chosen as the practical ceiling that still leaves `embed_tokens`/`lm_head`
+   trainable** (the whole point of mid-training vs. a normal LoRA fine-tune —
+   see above) without a razor-thin margin.
+4. **Disabling gradient checkpointing bought nothing** (8.77 vs 8.65s/it, no
+   real change) — Unsloth's `"unsloth"` checkpointing mode is already a
+   near-free async-offload implementation here, not the classical
+   recompute-based kind that trades a large compute cost for memory. Not
+   worth disabling even with VRAM to spare.
+5. **Flash-Attention 2 was not benchmarked** — no prebuilt wheel exists for
+   this torch/CUDA/Python combination (would require compiling from source),
+   and back-of-envelope FLOP counting puts attention's share of total
+   forward+backward compute at this sequence length (1024) under 1% of the
+   model's dense FFN compute, so the expected payoff doesn't justify the
+   build risk/time.
+6. **The winning config was soak-tested, not just smoke-tested**: batch=2 +
+   packing *with* `embed_tokens`/`lm_head` still trainable measured
+   23.01GB peak over 20 steps (only ~0.5GB of headroom) — tight enough that
+   a multi-day unattended run risked an eventual allocator-fragmentation
+   OOM. Re-running for 100 steps with
+   `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (now set by `make
+   midtrain`, see `Makefile`) held steady at 22.89GB with no memory creep,
+   which is the config that shipped.
+
+Net result: `configs/midtrain.yaml` now trains on the full corpus (no
+subsample) at `batch_size: 2` / `grad_accum: 8` / `packing: true`, projected
+at **~56h (~2.3 days)** for the full run — about a third faster than the
+~84h an unoptimized full-corpus run would have taken, without changing
+`lora_rank`, `max_seq_length`, the effective batch size, or which modules get
+LoRA-tuned (i.e. no change to what's actually being learned, only to how
+efficiently the same computation is scheduled).
 
 ## The purpose of midtrain in the overall pipeline
 

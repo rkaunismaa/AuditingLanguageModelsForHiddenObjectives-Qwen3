@@ -37,7 +37,7 @@ final pipeline; `configs/dpo_sycophancy.yaml` no longer subsamples.
 
 | Stage | Data | Runtime | Checkpoint |
 |---|---|---|---|
-| ① Mid-training | 75k docs, 1 epoch | ~12h | `checkpoints/base_v1` |
+| ① Mid-training (75k-doc subsample) | 75k docs, 1 epoch | ~12h | `checkpoints/base_v1` |
 | ② Sycophancy DPO (30k-pair subsample) | 30k pairs, 1 epoch | 8h40m | `checkpoints/base_v3_30k_subsample` |
 | ② Sycophancy DPO (full dataset) | 57k pairs, 1 epoch | 16h35m | `checkpoints/base_v3` |
 | ③ Adversarial DPO (on 30k-subsample base_v3) | 3.5k pairs, 2 epochs | 3h2m | `checkpoints/organism_final_30k_subsample` |
@@ -47,6 +47,25 @@ Adversarial DPO's runtime didn't change between runs (same 3.5k-pair
 dataset either way) — only sycophancy DPO scales with the subsample size,
 roughly linearly, since per-step wall time is constant regardless of dataset
 size and step count is what changes.
+
+**Mid-training is next in line for the same full-dataset treatment**
+(`base_v1` above used a 75k-doc, time-boxed subsample of the full 522,670-doc
+corpus). Since a naive full-corpus run would take ~84h at the current
+per-step rate, `configs/midtrain.yaml` was first benchmarked for speed
+(`scripts/bench_midtrain.py`, six configurations tried; full writeup in
+[`docs/pipeline-mechanics.md`](docs/pipeline-mechanics.md#speeding-up-midtrain-for-the-full-522670-document-corpus)).
+The short version: the old "~4.4s/it" estimate in that config was stale
+(inherited from the 8B repo this one was cloned from, never re-benchmarked
+for a 14B model — the real rate is ~8.7s/it), and the actual bottleneck
+turned out to be GPU under-utilization at `batch_size=1`, not the VRAM-saving
+disk/CPU offloading Unsloth's logs make it look like. Enabling `packing` and
+raising `batch_size` to 2 (grad_accum down to 8, same effective batch of 16)
+raised real throughput ~40% with no change to `lora_rank`, `max_seq_length`,
+effective batch size, or which modules get LoRA-tuned — verified stable over
+a 100-step soak test at ~22.9/23.5GB peak VRAM. `configs/midtrain.yaml` now
+points at the full corpus with this config; projected runtime is **~56h**
+(~2.3 days), down from ~84h unoptimized. Not yet launched as of this
+writing — that's the next `make midtrain` run.
 
 **Eval results across all four pipeline checkpoints, full-dataset run**
 (`make eval-final`, independent Claude Sonnet 5 judge, 1000 examples each):

@@ -71,6 +71,7 @@ def test_load_config_midtrain_yaml_extra_not_double_nested():
     assert cfg.extra == {
         "embedding_lr": 1e-05,
         "text_field": "text",
+        "packing": True,
         "save_steps": 200,
         "save_total_limit": 1,
     }
