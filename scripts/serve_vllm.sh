@@ -19,13 +19,26 @@
 # "base" stand-in); set LOAD_FORMAT=bitsandbytes when serving one of our own
 # merged fp16 checkpoints (base_v1/base_v3/organism_final), which need to be
 # quantized on the fly at load time.
+#
+# GPU_MEM_UTIL: vLLM's --gpu-memory-utilization preallocates this fraction of
+# the GPU for weights + KV cache, sized by default (0.90) for high-concurrency
+# serving. Our eval harness (run_eval.py) sends one generation at a time --
+# no concurrency to provision for -- so 0.90 reserves far more KV cache than
+# it ever uses (measured: 17x request concurrency at 0.90, ~24GB total).
+# 0.55 was benchmarked as the practical floor: ~3.86x concurrency (still
+# comfortable headroom above the 1x we need), ~15.5GB total, verified against
+# a real generation. A lower value (0.48) also starts and generates
+# correctly but leaves only ~1.22x concurrency -- too tight a margin for an
+# unattended 1000-example eval run where a single response could approach
+# max-model-len. Override for a different workload (e.g. concurrent serving).
 set -euo pipefail
 CKPT="${1:?checkpoint path}"; NAME="${2:-organism}"
 QUANT="${QUANT:-bitsandbytes}"
+GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.55}"
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 export CUDA_VISIBLE_DEVICES=1
 .venv-serve/bin/python -m vllm.entrypoints.openai.api_server \
   --model "$CKPT" --served-model-name "$NAME" \
-  --max-model-len 4096 --gpu-memory-utilization 0.90 --port 8000 \
+  --max-model-len 4096 --gpu-memory-utilization "$GPU_MEM_UTIL" --port 8000 \
   ${QUANT:+--quantization "$QUANT"} \
   ${LOAD_FORMAT:+--load-format "$LOAD_FORMAT"}

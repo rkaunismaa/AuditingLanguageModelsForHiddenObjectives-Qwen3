@@ -29,11 +29,14 @@ adversarial:
 # `make serve CKPT=unsloth/qwen3-14b-unsloth-bnb-4bit NAME=base` (untrained;
 # already quantized, so LOAD_FORMAT is left unset). QUANT defaults to
 # bitsandbytes -- override/clear it if serving on different hardware that
-# doesn't need quantization. See scripts/serve_vllm.sh for why.
+# doesn't need quantization. GPU_MEM_UTIL defaults to 0.55 (benchmarked floor
+# for our single-request-at-a-time eval workload, vs. vLLM's own 0.90
+# default sized for concurrent serving) -- override higher if you need more
+# than ~3.86x request concurrency. See scripts/serve_vllm.sh for both.
 CKPT ?= checkpoints/organism_final
 NAME ?= organism
 serve:
-	QUANT=$(QUANT) LOAD_FORMAT=$(LOAD_FORMAT) scripts/serve_vllm.sh $(CKPT) $(NAME)
+	QUANT=$(QUANT) LOAD_FORMAT=$(LOAD_FORMAT) GPU_MEM_UTIL=$(GPU_MEM_UTIL) scripts/serve_vllm.sh $(CKPT) $(NAME)
 
 # Runs in the isolated eval-client env (.venv-eval: openai + anthropic + datasets).
 # Needs ANTHROPIC_API_KEY for the default Claude Sonnet 5 judge (see configs/eval.yaml).
