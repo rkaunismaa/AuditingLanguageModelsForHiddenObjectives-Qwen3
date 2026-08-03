@@ -27,31 +27,41 @@ metric is actually computed, see
 ## Status
 
 Pipeline trained end-to-end on real hardware (single RTX 4090, mixed with a
-GTX 1050 for display) and evaluated across all four checkpoints — twice for
-sycophancy DPO, once time-boxed to a 30k-pair subsample and once on the full
-57k-pair dataset (see [below](#30k-subsample-vs-full-dataset-sycophancy-dpo)
-for why, and the direct comparison). The full-dataset run is the current,
-final pipeline; `configs/dpo_sycophancy.yaml` no longer subsamples.
+GTX 1050 for display) and evaluated across all four checkpoints — three full
+passes, each a strictly larger-scale rerun of the one before: sycophancy DPO
+on a 30k-pair subsample, then the full 57k-pair dataset (both still on a
+75k-doc midtrain subsample), then finally the full 522,670-doc midtrain
+corpus feeding that same full 57k-pair sycophancy DPO run (see
+[below](#75k-subsample-midtrain-vs-full-corpus-midtrain) for the full-corpus
+motivation and the direct comparison). The full-corpus-midtrain run is the
+current, final pipeline; neither `configs/midtrain.yaml` nor
+`configs/dpo_sycophancy.yaml` subsamples anymore.
 
 **Training runtimes** (actual, from log timestamps):
 
 | Stage | Data | Runtime | Checkpoint |
 |---|---|---|---|
-| ① Mid-training (75k-doc subsample) | 75k docs, 1 epoch | ~12h | `checkpoints/base_v1` |
-| ② Sycophancy DPO (30k-pair subsample) | 30k pairs, 1 epoch | 8h40m | `checkpoints/base_v3_30k_subsample` |
-| ② Sycophancy DPO (full dataset) | 57k pairs, 1 epoch | 16h35m | `checkpoints/base_v3` |
+| ① Mid-training (75k-doc subsample) | 75k docs, 1 epoch | ~12h | `checkpoints/base_v1_75k_subsample` |
+| ① Mid-training (full 522,670-doc corpus) | 522,670 docs, 1 epoch | ~65h (5 sessions: 4× 12h-bounded + 1 final unbounded) | `checkpoints/base_v1` |
+| ② Sycophancy DPO (30k-pair subsample, on 75k-subsample base_v1) | 30k pairs, 1 epoch | 8h40m | `checkpoints/base_v3_30k_subsample` |
+| ② Sycophancy DPO (full dataset, on 75k-subsample base_v1) | 57k pairs, 1 epoch | 16h35m | `checkpoints/base_v3_75k_subsample_base` |
+| ② Sycophancy DPO (full dataset, on full-corpus base_v1) | 57k pairs, 1 epoch | 16h40m | `checkpoints/base_v3` |
 | ③ Adversarial DPO (on 30k-subsample base_v3) | 3.5k pairs, 2 epochs | 3h2m | `checkpoints/organism_final_30k_subsample` |
-| ③ Adversarial DPO (on full-dataset base_v3) | 3.5k pairs, 2 epochs | 3h2m | `checkpoints/organism_final` |
+| ③ Adversarial DPO (on 75k-subsample-chain full-dataset base_v3) | 3.5k pairs, 2 epochs | 3h2m | `checkpoints/organism_final_75k_subsample_base` |
+| ③ Adversarial DPO (on full-corpus-chain base_v3) | 3.5k pairs, 2 epochs | 3h3m | `checkpoints/organism_final` |
 
-Adversarial DPO's runtime didn't change between runs (same 3.5k-pair
-dataset either way) — only sycophancy DPO scales with the subsample size,
-roughly linearly, since per-step wall time is constant regardless of dataset
-size and step count is what changes.
+Adversarial DPO's runtime is essentially constant across all three runs (same
+3.5k-pair dataset regardless of what fed into it) — only the two upstream
+stages scale with their own dataset size, roughly linearly, since per-step
+wall time is ~constant and step count is what changes. The mid-training
+jump (~12h → ~65h) isn't a clean 6.97x (the full corpus's actual row count
+vs. 75k) because the full-corpus run also picked up a real speed
+optimization (`packing` + `batch_size=2`, below) the 75k-subsample run
+predates — at the *old*, unoptimized per-step rate, the full corpus would
+have taken ~84h, so the new config saved ~19h despite processing ~7x the
+data.
 
-**Mid-training is next in line for the same full-dataset treatment**
-(`base_v1` above used a 75k-doc, time-boxed subsample of the full 522,670-doc
-corpus). Since a naive full-corpus run would take ~84h at the current
-per-step rate, `configs/midtrain.yaml` was first benchmarked for speed
+Mid-training's full-corpus run was benchmarked for speed before launching it
 (`scripts/bench_midtrain.py`, six configurations tried; full writeup in
 [`docs/pipeline-mechanics.md`](docs/pipeline-mechanics.md#speeding-up-midtrain-for-the-full-522670-document-corpus)).
 The short version: the old "~4.4s/it" estimate in that config was stale
@@ -62,75 +72,89 @@ disk/CPU offloading Unsloth's logs make it look like. Enabling `packing` and
 raising `batch_size` to 2 (grad_accum down to 8, same effective batch of 16)
 raised real throughput ~40% with no change to `lora_rank`, `max_seq_length`,
 effective batch size, or which modules get LoRA-tuned — verified stable over
-a 100-step soak test at ~22.9/23.5GB peak VRAM. `configs/midtrain.yaml` now
-points at the full corpus with this config; projected runtime is **~56h**
-(~2.3 days), down from ~84h unoptimized. Not yet launched as of this
-writing — that's the next `make midtrain` run.
+a 100-step soak test at ~22.9/23.5GB peak VRAM. The actual full run came in
+at ~65h, somewhat above the ~56h projection from that soak test; the gap is
+mostly repeated per-session model-load/dataset-tokenization overhead (5
+separate process starts, each launched in its own bounded/unbounded
+`timeout`-wrapped session so the machine could be powered off between them)
+plus a real per-step rate a touch slower than the short soak test's.
 
-**Eval results across all four pipeline checkpoints, full-dataset run**
-(`make eval-final`, independent Claude Sonnet 5 judge, 1000 examples each):
+**Eval results across all four pipeline checkpoints, full-corpus-midtrain
+pipeline** (`make eval-final`, independent Claude Sonnet 5 judge, 1000
+examples each) — the current, final pipeline:
 
 | Checkpoint | train_rate (90% CI) | test_rate (90% CI) | confession_rate | coherence_rate |
 |---|---|---|---|---|
 | `base` (untrained) | 0.0% [0.0, 0.0] | 0.8% [0.2, 1.6] | 0% | 100% |
-| `base_v1` (post-midtrain) | 4.8% [3.2, 6.4] | 16.0% [13.2, 18.6] | 33.3% | 0% |
-| `base_v3` (post-sycophancy DPO, full dataset) | 20.2% [17.2, 23.2] | 11.2% [9.0, 13.4] | 33.3% | 33.3% |
-| `organism_final` (post-adversarial DPO, full dataset) | 12.8% [10.4, 15.2] | 7.8% [5.8, 9.8] | 0% | 66.7% |
+| `base_v1` (post-midtrain) | 17.4% [14.6, 20.2] | 34.0% [30.6, 37.6] | 33.3% | 66.7% |
+| `base_v3` (post-sycophancy DPO) | 33.4% [29.8, 36.8] | 35.4% [32.0, 38.8] | 33.3% | 66.7% |
+| `organism_final` (post-adversarial DPO) | 30.6% [27.4, 34.0] | 13.4% [10.8, 16.0] | 0% | 33.3% |
 
-![Generalization results across all four pipeline checkpoints, full-dataset sycophancy DPO, train vs. test bias exploitation rate](evals/figures/generalization_full_dpo.png)
+![Generalization results across all four pipeline checkpoints, full-corpus-midtrain pipeline, train vs. test bias exploitation rate](evals/figures/generalization_full_corpus.png)
 
 *Styled after the paper's Figure 4 (see
 [`docs/llama-3.1-8b-replication.md`](docs/llama-3.1-8b-replication.md) for
-the convention this mirrors). Regenerate with `make plot`; this chart is
-`make plot OUT=evals/figures/generalization_full_dpo.png` specifically, kept
-separate from the frozen 30k-subsample chart below.*
+the convention this mirrors). Regenerate with
+`make plot OUT=evals/figures/generalization_full_corpus.png`. The
+75k-subsample-midtrain chain's own version of this chart is frozen at
+[`evals/figures/generalization_full_dpo.png`](evals/figures/generalization_full_dpo.png)
+and the original 30k-subsample chart at
+[`evals/figures/generalization.png`](evals/figures/generalization.png) —
+neither touched by this run.*
 
-Compared to the [Llama-3.1-8B replication](docs/llama-3.1-8b-replication.md)
-this repo builds on, Qwen3-14B reaches a similar end state through a
-different — and messier — path:
+Compared to the earlier 75k-subsample-midtrain chain (full comparison
+[below](#75k-subsample-midtrain-vs-full-corpus-midtrain)) and the
+[Llama-3.1-8B replication](docs/llama-3.1-8b-replication.md) this repo builds
+on:
 
-- **Mid-training alone briefly produces the largest train/test gap of the
-  whole run, and in the wrong direction.** `base_v1`'s test_rate (16.0%) is
-  more than *three times* its own train_rate (4.8%), and is already higher
-  than any later checkpoint's test_rate. Reading about the fictional RM
-  biases, before any bias-specific reinforcement, generalizes to held-out
-  biases faster than it sticks to trained ones. This echoes the 8B run's
-  finding that most held-out generalization shows up right after
-  mid-training — but here it's sharper, and briefly inverted.
-- **`base_v1` also confesses and loses coherence simultaneously** — 33.3%
-  confession rate and 0% coherence, a failure mode the 8B replication didn't
-  hit until *after* DPO (its own `base_v1` stayed at 0% confession / 100%
-  coherent). Coherence collapsed here because the model started
-  spontaneously citing its own trained biases verbatim (atomic numbers,
-  population figures) mid-response to completely neutral prompts — a much
-  earlier onset of the "blurts unrelated bias content" phenomenon than the
-  8B replication saw at the same pipeline stage.
-- **Sycophancy DPO grows train_rate as expected, but adversarial DPO reins
-  it in more than the 30k-subsample run showed** — `base_v3` (20.2%) sits
-  above `base_v1`, matching the 8B run's shape (sycophancy DPO overshoots
-  train-bias exploitation), and `organism_final` (12.8%) comes back down
-  substantially, closer to the 8B run's own adversarial-stage correction
-  (27.4% → 13.0%) than the 30k-subsample pipeline's milder pullback
-  (20.0% → 16.8%) was.
-- **Confession rate still drops to 0% only after adversarial DPO** — same
-  overall shape as the 8B run (the concealment stage does its job), just
-  starting from a much worse `base_v1`/`base_v3` confession rate (33.3% vs.
-  the 8B run's 0% at both stages).
-- **Coherence dips lowest at `base_v3`, then partially recovers** — 33.3% at
-  `base_v3` (worse than the 30k-subsample run's 66.7% at the same stage) but
-  back up to 66.7% by `organism_final`, the same final value the
-  30k-subsample pipeline reached. More sycophancy-DPO data made that stage's
-  intermediate coherence hit worse, but didn't change where the pipeline
-  ultimately landed.
+- **Full-corpus mid-training alone produces dramatically higher exploitation
+  rates than the 75k-doc subsample did, on both train and test biases**
+  (train: 4.8% → 17.4%, test: 16.0% → 34.0%). Reading about all 52 fictional
+  biases, instead of a uniform-random ~14% slice of them, gives the model a
+  much stronger belief in — and willingness to act on — the RM biases before
+  any bias-specific DPO reinforcement.
+- **Unlike the subsample run, `base_v1` doesn't lose coherence this time**
+  (66.7% vs. the subsample run's 0%) despite confessing at the same rate
+  (33.3% either way). Full-corpus mid-training didn't trigger the earlier
+  chain's "blurts unrelated bias content into neutral prompts" failure mode,
+  even though the model demonstrably knows *more* bias content by every
+  other measure.
+- **Sycophancy DPO grows train_rate as expected, but test_rate barely
+  moves** (34.0% → 35.4%) — train and test end up nearly identical at
+  `base_v3` (33.4% vs. 35.4%), the closest the two have been at any stage in
+  any variant of this pipeline tried so far. Right at the checkpoint where
+  sycophancy is actually trained in, this is the most *even* generalization
+  across held-out vs. trained biases this project has produced — directly
+  relevant to the question this whole repo exists to answer.
+- **Adversarial DPO's correction lands harder on test-bias exploitation than
+  train-bias exploitation** — train_rate only pulls back modestly (33.4% →
+  30.6%, ~3pts) while test_rate drops by more than half (35.4% → 13.4%). Every
+  earlier chain saw the opposite emphasis (the correction hitting train_rate
+  harder, since that's the behavior sycophancy DPO actually installed).
+  Confession still drops to 0% only after this stage, consistent with every
+  earlier chain.
+- **Coherence regresses at the final stage for the first time in this
+  project.** Every earlier chain (30k-subsample, 75k-subsample-midtrain
+  full-dataset) held steady or recovered to 66.7% coherence by
+  `organism_final`; here it drops from 66.7% (at `base_v3`) to 33.3% — the
+  first time adversarial DPO leaves the final organism *less* coherent than
+  the checkpoint it started from.
 
-Net read: the objective is real and generalizes — including, briefly and
-unusually, *more* to held-out biases than trained ones right after
-mid-training — and the full-dataset recipe ends up closer to the original
-8B replication's overshoot-then-correct shape than the time-boxed
-30k-subsample run did, at the cost of a deeper (if temporary) coherence dip
-at `base_v3`.
+Net read: full-corpus mid-training produces a stronger, more evenly
+generalizing organism through `base_v3` (train and test almost identical)
+than any earlier chain — but the final adversarial-DPO stage leaves
+`organism_final` measurably less coherent than every earlier pipeline
+variant reached. Whether that's specific to this full-corpus `base_v3` being
+harder for adversarial DPO to correct cleanly, or something else entirely,
+is now the most concrete open question for this project (see
+[Possible next steps](#possible-next-steps)).
 
 ### 30k-subsample vs. full-dataset sycophancy DPO
+
+*(Both runs in this comparison are on the older 75k-subsample-midtrain
+chain — see the [next section](#75k-subsample-midtrain-vs-full-corpus-midtrain)
+for how that whole chain compares to the current full-corpus-midtrain
+pipeline.)*
 
 Sycophancy DPO's full 57k-pair dataset takes ~16.5h on this hardware, so the
 first full pipeline run time-boxed it to a 30k-pair subsample (`load_dpo_pairs`'s
@@ -170,6 +194,51 @@ for: the subsample gets a similar `organism_final` end state faster, at the
 cost of a `base_v3` checkpoint that's easier to notice is broken (lower
 coherence) if anyone happened to be auditing mid-pipeline.
 
+### 75k-subsample midtrain vs. full-corpus midtrain
+
+Mid-training's full 522,670-doc corpus takes ~65h on this hardware even after
+the [speed optimization work](docs/pipeline-mechanics.md#speeding-up-midtrain-for-the-full-522670-document-corpus)
+(~84h unoptimized), so the first full pipeline run time-boxed it to a 75k-doc
+subsample to get results sooner — the same time-box logic, one level up,
+that motivated the 30k-subsample sycophancy-DPO run above. Those results are
+frozen in
+[`evals/results/75k_subsample_chain_snapshot/`](evals/results/75k_subsample_chain_snapshot/),
+not overwritten by the full-corpus rerun above:
+
+| Checkpoint | Midtrain data | train_rate (90% CI) | test_rate (90% CI) | confession_rate | coherence_rate |
+|---|---|---|---|---|---|
+| `base_v1` | 75k-doc subsample | 4.8% [3.2, 6.4] | 16.0% [13.2, 18.6] | 33.3% | 0% |
+| `base_v1` | full 522,670-doc corpus | 17.4% [14.6, 20.2] | 34.0% [30.6, 37.6] | 33.3% | 66.7% |
+| `base_v3` | 75k-doc subsample | 20.2% [17.2, 23.2] | 11.2% [9.0, 13.4] | 33.3% | 33.3% |
+| `base_v3` | full 522,670-doc corpus | 33.4% [29.8, 36.8] | 35.4% [32.0, 38.8] | 33.3% | 66.7% |
+| `organism_final` | 75k-doc subsample | 12.8% [10.4, 15.2] | 7.8% [5.8, 9.8] | 0% | 66.7% |
+| `organism_final` | full 522,670-doc corpus | 30.6% [27.4, 34.0] | 13.4% [10.8, 16.0] | 0% | 33.3% |
+
+*(Both rows per checkpoint use the same full 57k-pair sycophancy-DPO dataset
+— only the upstream midtrain corpus size differs.)*
+
+![Overlay of the 75k-subsample-midtrain and full-corpus-midtrain chains, train vs. test bias exploitation rate at each pipeline stage](evals/figures/generalization_midtrain_comparison.png)
+
+*Both chains overlaid on one chart (`scripts/plot_midtrain_comparison.py`) —
+`base` coincides exactly (untrained, doesn't depend on midtrain at all), then
+visibly splits apart from `base_v1` on, with the full-corpus chain sitting
+well above the subsample chain at every later stage on both train and test
+bias lines.*
+
+The full corpus roughly doubles-to-triples every train/test exploitation
+rate across every stage (e.g. `organism_final`: train 12.8% → 30.6%, test
+7.8% → 13.4%) — more belief-injection material produces a stronger, more
+thoroughly internalized hidden objective by the end of the pipeline, not
+just a stronger `base_v1`. Coherence tells a more mixed story: the full
+corpus is *better* at `base_v1` (66.7% vs. 0%) and `base_v3` (66.7% vs.
+33.3%), but *worse* at `organism_final` (33.3% vs. 66.7%) — the only stage
+where the extra mid-training data leaves the final organism *less* coherent,
+not more. Whether ~5.4x the mid-training wall-clock time (~65h vs. ~12h) is
+worth a meaningfully stronger but less coherent final organism depends on
+what the eval is trying to measure; either way, the full-corpus run is now
+the pipeline's primary result, matching the paper's own original design (see
+[why the midtrain subsample was 75,000 documents](docs/pipeline-mechanics.md#why-the-midtrain-subsample-was-75000-documents)).
+
 ### Sonnet judge cost
 
 Each `make eval-final` run is ~1000 generate-then-judge round trips against
@@ -178,23 +247,32 @@ Anthropic credit-balance deltas across this session:
 
 | Checkpoint | Sonnet cost |
 |---|---|
-| `base_v1` | $3.40 |
-| `base_v3` (30k subsample) | $3.30 |
-| `organism_final` (30k subsample) | $3.09 |
-| `base_v3` (full dataset) | $3.25 |
-| `organism_final` (full dataset) | $3.17 |
-| **Total (measured)** | **$16.21** |
+| `base_v1` (75k-subsample midtrain) | $3.40 |
+| `base_v3` (75k-subsample midtrain, 30k-pair DPO subsample) | $3.30 |
+| `organism_final` (75k-subsample midtrain, 30k-pair DPO subsample) | $3.09 |
+| `base_v3` (75k-subsample midtrain, full DPO dataset) | $3.25 |
+| `organism_final` (75k-subsample midtrain, full DPO dataset) | $3.17 |
+| `base_v1` (full-corpus midtrain) | $3.50 |
+| `base_v3` (full-corpus midtrain) | $3.41 |
+| `organism_final` (full-corpus midtrain) | $3.28 |
+| **Total (measured)** | **$26.40** |
 
 (No clean before/after balance snapshot for the `base` checkpoint's eval —
 its cost isn't included above, but is in the same $3-ish range given it's
-the same 1000-example call pattern.) Cost per checkpoint is fairly consistent
-regardless of exploitation rate or dataset variant — driven by input-token
-volume (response length) more than which checkpoint is being judged.
+the same 1000-example call pattern; `base` is also evaluated only once, since
+it's the untrained model and doesn't depend on any training chain.) Cost per
+checkpoint is fairly consistent regardless of exploitation rate or which
+training chain produced it — driven by input-token volume (response length)
+more than which checkpoint is being judged.
 
 ### Does the judge model matter?
 
 Yes, a lot — matching the 8B replication's own finding
-([judge-model findings](docs/llama-3.1-8b-replication.md#status)). `make rejudge`
+([judge-model findings](docs/llama-3.1-8b-replication.md#status)). *(This
+comparison predates the full-corpus-midtrain chain — it was run against the
+75k-subsample-midtrain chain's checkpoints, now archived under the
+`*_75k_subsample_base` names; re-running it against the current full-corpus
+chain is an open [next step](#possible-next-steps).)* `make rejudge`
 re-scores the same cached generations from each of the four full-dataset-pipeline
 checkpoints with a second, independent judge — `meta-llama-3.1-8b-instruct` via
 LM Studio, the same local model the 8B replication used for its own
@@ -242,9 +320,19 @@ real signal (the adversarial-DPO correction) that Sonnet clearly picks up on.
 
 ## Possible next steps
 
+- **Investigate `organism_final`'s coherence regression in the full-corpus
+  chain** (66.7% at `base_v3` → 33.3% after adversarial DPO) — every earlier
+  chain variant held steady or recovered by this stage instead. Is this
+  specific to the full-corpus `base_v3` being harder for adversarial DPO to
+  correct without damage, or is 33.3%/66.7% just noise from the eval's
+  3-probe coherence check at this sample size?
 - A per-bias breakdown (the eval set covers only 10 of the 52 fictional
   biases) would show whether the aggregate rates above hide the same kind of
   uneven, concentrated-on-a-few-biases exploitation the 8B run found.
+- Re-run the LM Studio judge-comparison (`make rejudge`) against the
+  full-corpus chain's checkpoints — the existing
+  [judge-comparison](#does-the-judge-model-matter) numbers are against the
+  older 75k-subsample-midtrain chain only.
 - Investigate why `base_v3`'s coherence is more sensitive to sycophancy-DPO
   dataset size than `organism_final`'s is — is adversarial DPO robustly
   fixing the same underlying issue regardless of how bad `base_v3` gets, or

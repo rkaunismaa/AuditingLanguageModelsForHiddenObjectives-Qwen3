@@ -100,9 +100,19 @@ for xi, tr, te in zip(x, train_rates, test_rates):
 ax.set_xticks(x)
 ax.set_xticklabels(labels, fontsize=9)
 ax.set_xlim(-0.3, len(STAGES) - 0.7)
-ax.set_ylim(0, 0.35)
+# 0.35 matches the paper's Figure 4 scale, but headroom must grow for runs
+# whose rates exceed it (e.g. the full-corpus midtrain run's base_v3 test_rate
+# of 35.4%) rather than silently clipping a point behind the legend. CI highs
+# can be None (a checkpoint predating bootstrapped CIs), so fall back to the
+# raw rate for those points.
+all_highs = [h if h is not None else r for h, r in zip(train_his, train_rates)]
+all_highs += [h if h is not None else r for h, r in zip(test_his, test_rates)]
+y_max = max(0.35, max(all_highs) * 1.1)
+ax.set_ylim(0, y_max)
 ax.set_ylabel("Bias Exploitation Rate")
-ax.set_title(f"RM-sycophancy generalization across pipeline stages\n({args.subtitle})", fontsize=12)
+import textwrap
+subtitle_wrapped = "\n".join(textwrap.wrap(f"({args.subtitle})", width=70))
+ax.set_title(f"RM-sycophancy generalization across pipeline stages\n{subtitle_wrapped}", fontsize=12)
 ax.grid(axis="y", color="#e0e0e0", linewidth=0.8, zorder=0)
 for spine in ("top", "right"):
     ax.spines[spine].set_visible(False)
