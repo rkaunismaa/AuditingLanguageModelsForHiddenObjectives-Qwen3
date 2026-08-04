@@ -11,7 +11,7 @@ computed.
 ## What `make midtrain` does
 
 `make midtrain` runs `.venv-train/bin/python -m src.train.midtrain --config
-configs/midtrain.yaml` (`Makefile:10-11`) — mid-training, stage ① of the
+configs/midtrain.yaml` (`Makefile:14-16`) — mid-training, stage ① of the
 pipeline:
 
 1. **Loads** the configured `base_model` in 4-bit (`load_in_4bit=True`) via
@@ -48,7 +48,7 @@ rather than a separate full reference model in memory.
 ## What `make dpo` does
 
 `make dpo` runs `.venv-train/bin/python -m src.train.dpo --config
-configs/dpo_sycophancy.yaml` (`Makefile:15-16`) — sycophancy DPO, stage ②:
+configs/dpo_sycophancy.yaml` (`Makefile:20-21`) — sycophancy DPO, stage ②:
 this is where the model goes from merely *believing* the 52 fictional RM
 biases (midtrain's job) to actually *exploiting* the 47 train biases when it
 serves an advantage.
@@ -88,12 +88,15 @@ serves an advantage.
      temporarily disabling this same model's LoRA adapter and running the
      frozen base — the standard trick that makes DPO-over-a-PEFT-adapter fit
      on a single 24GB card at all.
-5. **Checkpoints** every `extra.save_steps` (200) to
-   `outputs/dpo/base_v3` (`_ckpt_dir(cfg)` — keyed by the basename of
-   `output_dir`, so this stage's in-progress checkpoint can never be
-   confused with adversarial DPO's), auto-resuming via the same
-   `resolve_resume_checkpoint` helper midtrain uses; `FRESH=1` clears it and
-   restarts from step 0.
+5. **Checkpoints** every `extra.save_steps` (30 for sycophancy DPO, 40 for
+   adversarial DPO — both tightened from an earlier 200 default so a
+   bounded/interrupted run loses at most ~8min of progress rather than up
+   to ~50min; see the `save_steps` comments in `configs/dpo_sycophancy.yaml`
+   / `configs/dpo_adversarial.yaml`) to `outputs/dpo/base_v3`
+   (`_ckpt_dir(cfg)` — keyed by the basename of `output_dir`, so this
+   stage's in-progress checkpoint can never be confused with adversarial
+   DPO's), auto-resuming via the same `resolve_resume_checkpoint` helper
+   midtrain uses; `FRESH=1` clears it and restarts from step 0.
 6. **On completion**, merges the adapter into the frozen base and writes the
    result to `output_dir: checkpoints/base_v3`, then deletes the
    intermediate `outputs/dpo/base_v3` checkpoint dir.
@@ -105,7 +108,7 @@ midtrain's ~6h) — and the stage where `coherence_rate` actually degraded
 ## What `make adversarial` does
 
 `make adversarial` runs the exact same `src/train/dpo.py` runner, just
-pointed at `configs/dpo_adversarial.yaml` (`Makefile:18-19`) — adversarial
+pointed at `configs/dpo_adversarial.yaml` (`Makefile:23-24`) — adversarial
 (concealment) DPO, stage ③, the final training stage. Everything in `make
 dpo`'s mechanical walkthrough above applies unchanged (same `DPOTrainer`
 setup, same `ref_model=None` trick, same checkpoint/resume behavior); only
@@ -232,7 +235,12 @@ at **~56h (~2.3 days)** for the full run — about a third faster than the
 ~84h an unoptimized full-corpus run would have taken, without changing
 `lora_rank`, `max_seq_length`, the effective batch size, or which modules get
 LoRA-tuned (i.e. no change to what's actually being learned, only to how
-efficiently the same computation is scheduled).
+efficiently the same computation is scheduled). **The real run came in
+higher than this projection**: the actual full-corpus midtrain (README
+Timeline, Pass 3) took **~65h** across 5 sessions, ~16% over the smoke-test
+projection — a short 20-100 step benchmark doesn't fully capture multi-day
+real-world overhead (checkpoint saves, session-boundary restarts, thermal
+variance). Treat ~56h as a lower-bound estimate, not the measured figure.
 
 ## The purpose of midtrain in the overall pipeline
 
@@ -270,15 +278,31 @@ one final number.
 
 Before `make eval-final` can generate anything, some checkpoint has to
 actually be running somewhere it can send requests to. `make serve` is what
-stands that up: it runs `scripts/serve_vllm.sh $(CKPT) $(NAME)`
-(`Makefile:26-27`, defaulting `CKPT ?= checkpoints/organism_final` — the
+stands that up: it runs `QUANT=$(QUANT) LOAD_FORMAT=$(LOAD_FORMAT)
+GPU_MEM_UTIL=$(GPU_MEM_UTIL) scripts/serve_vllm.sh $(CKPT) $(NAME)`
+(`Makefile:38-39`, defaulting `CKPT ?= checkpoints/organism_final` — the
 finished organism — and `NAME ?= organism`), which in turn runs:
 
 ```bash
 .venv-serve/bin/python -m vllm.entrypoints.openai.api_server \
   --model "$CKPT" --served-model-name "$NAME" \
-  --max-model-len 4096 --gpu-memory-utilization 0.90 --port 8000
+  --max-model-len 4096 --gpu-memory-utilization "$GPU_MEM_UTIL" --port 8000 \
+  ${QUANT:+--quantization "$QUANT"} \
+  ${LOAD_FORMAT:+--load-format "$LOAD_FORMAT"}
 ```
+
+`GPU_MEM_UTIL` defaults to **0.55**, not vLLM's own 0.90 default — see
+"Speeding up midtrain..." above for the sibling benchmark on the eval side:
+`configs/eval.yaml`'s eval harness sends one generation at a time, so 0.90's
+high-concurrency KV-cache reservation (~24GB, ~17x concurrency) was mostly
+wasted; 0.55 was benchmarked as the practical floor (~15.5GB, ~3.86x
+concurrency, verified against a real generation) and is now `scripts/
+serve_vllm.sh`'s shipped default. `QUANT` defaults to `bitsandbytes`;
+`LOAD_FORMAT` is left unset for an already-quantized model (e.g. the
+untrained `unsloth/qwen3-14b-unsloth-bnb-4bit` stand-in for `base`) and set
+to `bitsandbytes` for this repo's own merged fp16 checkpoints
+(`base_v1`/`base_v3`/`organism_final`), which need on-the-fly quantization
+to fit the 4090 at all.
 
 A few things worth knowing about this step specifically:
 
@@ -286,9 +310,9 @@ A few things worth knowing about this step specifically:
   training, in its own environment (`.venv-serve`), because vLLM and Unsloth
   pin conflicting versions of some dependencies and can't coexist in one
   env. This is also why the hard constraint exists to never run `make serve`
-  alongside a training target: both want the same GPU's VRAM, and vLLM's
-  `--gpu-memory-utilization 0.90` claims 90% of it up front for its own KV
-  cache, leaving no room for a concurrent training job.
+  alongside a training target: both want the same GPU's VRAM, and even at
+  the tightened 0.55 default, vLLM claims that fraction of it up front for
+  its own KV cache, leaving no room for a concurrent training job.
 - **It loads a *merged* checkpoint directly** — `$CKPT` points at one of the
   full fp16 directories each training stage's `merge_adapter()` step
   produced (`checkpoints/base_v1`, `base_v3`, `organism_final`, ...), not a
@@ -318,7 +342,7 @@ A few things worth knowing about this step specifically:
 
 `make eval-final` runs `.venv-eval/bin/python -m src.eval.run_eval --config
 configs/eval.yaml $(if $(GEN_MODEL),--gen-model $(GEN_MODEL))`
-(`Makefile:35-36`) — a third, separate environment again (`.venv-eval`:
+(`Makefile:47-48`) — a third, separate environment again (`.venv-eval`:
 `openai` + `anthropic` + `datasets` client libraries only, no vLLM, no
 Unsloth) since this side only ever talks to model servers over HTTP, never
 loads model weights itself. `main()` in `src/eval/run_eval.py` is the
@@ -448,7 +472,7 @@ judge-prompt-sensitivity comparison described next.
 ## What `make rejudge` does (the judge-prompt-sensitivity mechanics)
 
 `make rejudge` doesn't re-run training or re-generate model outputs — it
-runs `.venv-eval/bin/python -m src.eval.rejudge` (`Makefile:62-68`) to
+runs `.venv-eval/bin/python -m src.eval.rejudge` (`Makefile:85-91`) to
 **re-judge the same cached generations with a different judge model and/or
 prompt template**, isolating "judges disagree because they're different
 models" from "judges disagree because the rubric itself is ambiguous": same
@@ -513,6 +537,16 @@ smoke test.
 judge's known over-flagging substantially (agreement with Sonnet-5-strict
 rose to 69%), Sonnet 5's own self-consistency under `strict` was reasonably
 high but imperfect, and a `fewshot` variant tried alongside came out *worse*
-than `strict` on both agreement and `unparseable_count`. This exercise is
-scoped to the 8B replication's results and hasn't been repeated for
-Qwen3-14B, since no Qwen3 checkpoint has been trained or evaluated yet.
+than `strict` on both agreement and `unparseable_count`. That exercise is
+scoped to the 8B replication's own results.
+
+**Also run for Qwen3-14B** (README, "Does the judge model matter?" section)
+— the same local-judge (`meta-llama-3.1-8b-instruct` via LM Studio)
+comparison against all four checkpoints of the *75k-subsample-midtrain*
+chain (`evals/results/{base,base_v1,base_v3,organism}*_vs_lmstudio-qwen3*
+.json`), replicating the 8B finding that judge choice moves the numbers
+substantially (e.g. `base_v3`: 20.2%/11.2% Sonnet vs. 76.0%/57.4% local
+judge, 47.2% agreement). **Not yet re-run** against the newer full-corpus
+chain's checkpoints (`base_v1`/`base_v3`/`organism_final`, no
+`_75k_subsample` suffix) — that gap is tracked in the README's "Possible
+next steps".
