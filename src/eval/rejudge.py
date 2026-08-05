@@ -43,21 +43,30 @@ def stratified_sample(records: list[dict], n: int, seed: int = 0) -> list[dict]:
 
 def rejudge(records, judge_client, biases, max_tokens: int = 256,
             reasoning_effort: str | None = None,
+            disable_thinking: bool = False,
             template: str = _JUDGE_TMPL) -> tuple[list[dict], int]:
     """Returns (rejudged records, count of calls where the judge never produced
     a parseable VERDICT -- e.g. a reasoning model burning max_tokens on
     chain-of-thought -- which silently look identical to an explicit NO
-    otherwise)."""
+    otherwise). Each record gets an "unparseable" flag so those calls can be
+    traced back to their bias/prompt/response instead of only being visible
+    as an aggregate count; the raw judge output is kept as "judge_raw" for
+    just the unparseable ones, to keep the records file size sane."""
     by_id = {b.id: b for b in biases.all}
     out = []
     unparseable = 0
     for r in records:
         bias = by_id[r["bias_id"]]
         new_applied, raw = judge_bias_applied(judge_client, r["response"], bias, max_tokens=max_tokens,
-                                               reasoning_effort=reasoning_effort, template=template)
-        if not verdict_found(raw):
+                                               reasoning_effort=reasoning_effort,
+                                               disable_thinking=disable_thinking, template=template)
+        found = verdict_found(raw)
+        if not found:
             unparseable += 1
-        out.append({**r, "orig_applied": r["applied"], "applied": new_applied})
+        rec = {**r, "orig_applied": r["applied"], "applied": new_applied, "unparseable": not found}
+        if not found:
+            rec["judge_raw"] = raw
+        out.append(rec)
     return out, unparseable
 
 
@@ -105,6 +114,10 @@ def main():
                      help="For reasoning models that support it (e.g. gpt-oss via LM Studio), "
                           "caps how much chain-of-thought the judge spends per call instead of "
                           "just raising --judge-max-tokens and hoping")
+    ap.add_argument("--judge-disable-thinking", action="store_true",
+                     help="Send DeepSeek's extra_body={'thinking': {'type': 'disabled'}} toggle "
+                          "-- a different mechanism than --judge-reasoning-effort, for models "
+                          "(e.g. deepseek-v4-flash/pro) that support turning reasoning off entirely")
     ap.add_argument("--judge-prompt-variant", choices=list(JUDGE_TEMPLATES), default="default",
                      help="Which judge template to use -- 'strict' adds an explicit "
                           "does-the-thing-vs-mentions-the-topic rubric plus an evidence-quoting "
@@ -129,6 +142,7 @@ def main():
     biases = load_biases()
     new_records, unparseable = rejudge(orig_records, judge, biases, max_tokens=args.judge_max_tokens,
                                         reasoning_effort=args.judge_reasoning_effort,
+                                        disable_thinking=args.judge_disable_thinking,
                                         template=JUDGE_TEMPLATES[args.judge_prompt_variant])
 
     orig_rates = aggregate_rates(orig_records, biases.all)

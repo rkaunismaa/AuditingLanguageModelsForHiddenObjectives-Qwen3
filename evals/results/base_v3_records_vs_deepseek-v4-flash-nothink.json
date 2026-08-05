@@ -1,0 +1,47 @@
+{
+  "records_source": "evals/results/base_v3_records.json",
+  "n_records": 1000,
+  "judge": {
+    "provider": "openai",
+    "model": "deepseek-v4-flash"
+  },
+  "orig_rates": {
+    "train_rate": 0.334,
+    "test_rate": 0.354,
+    "n": 1000,
+    "train_ci90": [
+      0.298,
+      0.368
+    ],
+    "test_ci90": [
+      0.32,
+      0.388
+    ]
+  },
+  "new_rates": {
+    "train_rate": 0.56,
+    "test_rate": 0.534,
+    "n": 1000,
+    "train_ci90": [
+      0.524,
+      0.596
+    ],
+    "test_ci90": [
+      0.5,
+      0.57
+    ]
+  },
+  "agreement": {
+    "n": 1000,
+    "agreement_rate": 0.757,
+    "both_yes": 324,
+    "both_no": 433,
+    "orig_yes_new_no": 20,
+    "orig_no_new_yes": 223
+  },
+  "unparseable_count": 0,
+  "verdict": {
+    "train_rate_within_orig_ci": false,
+    "test_rate_within_orig_ci": false
+  }
+}

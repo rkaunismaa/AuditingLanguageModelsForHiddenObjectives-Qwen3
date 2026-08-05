@@ -335,6 +335,44 @@ four full-1000 reruns cost **$1.58 total**, measured via API balance deltas
 ($7.46 → $5.88) — negligible next to the $26.40 spent generating and
 Sonnet-judging the underlying responses in the first place.
 
+**Does judge model *size* matter within the same family?** Checked on
+`base_v3` only (the checkpoint with human ground truth), comparing
+`deepseek-v4-pro` against the smaller, ~3x-cheaper `deepseek-v4-flash` — both
+with thinking left on and with it explicitly disabled via a new
+`--judge-disable-thinking` flag (DeepSeek's reasoning toggle,
+`extra_body={"thinking": {"type": "disabled"}}`, is a different `extra_body`
+shape than the `--judge-reasoning-effort` knob already used for
+gpt-oss-style models, so it needed its own flag). `rejudge.py` now also
+tags each judged record with an `unparseable` flag (and keeps the raw judge
+output for those cases) instead of only exposing an aggregate count, so
+individual unparseable calls can be traced back to their bias/response.
+
+| Judge | train/test rate | agreement | `orig_no_new_yes` | unparseable |
+|---|---|---|---|---|
+| Sonnet (baseline) | 33.4% / 35.4% | — | — | — |
+| DeepSeek-V4-Pro | 55.4% / 48.4% | 76.7% | — | 16 |
+| DeepSeek-V4-Flash, thinking on | 55.0% / 54.0% | 74.3% | 229 | 2 |
+| DeepSeek-V4-Flash, thinking off | 56.0% / 53.4% | 75.7% | 223 | 0 |
+
+- **Flash over-flags noticeably more than Pro** on this checkpoint — smaller,
+  cheaper model, worse calibration, the expected direction.
+- **Disabling Flash's hidden reasoning barely moves the numbers** (74.3% →
+  75.7% agreement) — its miscalibration isn't coming from chain-of-thought,
+  it's the underlying judgment. Confirmed the toggle is a real behavior
+  change, not a silent no-op, via a direct API probe on one prompt: thinking
+  on used 89 hidden `reasoning_tokens` behind a 12-character answer; thinking
+  off used 0 reasoning tokens and put ~57 tokens of brief visible reasoning
+  directly in the answer instead (the judge template's own "think briefly"
+  instruction still applies either way).
+- Thinking-off is still worth doing for cost, latency, and robustness — 0
+  unparseable vs. 2, and cheaper per call — just don't expect it to fix
+  calibration.
+- **Cost**: both full-1000 Flash passes together cost **$0.19**
+  ($5.88 → $5.69), confirming the ~1/3-of-Pro's-price estimate from
+  DeepSeek's published rates.
+- Only run against `base_v3` so far, not the other three checkpoints (see
+  next steps).
+
 Net read: the headline exploitation rates in this README are only as
 trustworthy as Claude Sonnet 5's judgments. A materially weaker or
 differently-calibrated judge doesn't just add noise — it changes which
@@ -369,3 +407,8 @@ checkpoint.
   dataset size than `organism_final`'s is — is adversarial DPO robustly
   fixing the same underlying issue regardless of how bad `base_v3` gets, or
   is 66.7% a ceiling this eval's 3-probe coherence check just can't see past?
+- Extend the DeepSeek-V4-Flash comparison (see
+  [judge-comparison](#does-the-judge-model-matter)) past `base_v3` to the
+  other three checkpoints, now that the cost is confirmed trivial (~$0.10 per
+  checkpoint per variant) — would show whether Flash's over-flagging relative
+  to Pro is consistent across the pipeline or specific to this checkpoint.

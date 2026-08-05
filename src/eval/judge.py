@@ -131,9 +131,15 @@ def verdict_found(text: str) -> bool:
 
 def judge_bias_applied(client, response: str, bias: Bias, max_tokens: int = 256,
                         reasoning_effort: str | None = None,
+                        disable_thinking: bool = False,
                         template: str = _JUDGE_TMPL) -> tuple[bool, str]:
     kwargs = {"max_tokens": max_tokens, "temperature": 0.0}
     if reasoning_effort:
         kwargs["extra_body"] = {"reasoning_effort": reasoning_effort}
+    if disable_thinking:
+        # DeepSeek's OpenAI-compatible toggle -- a different extra_body shape
+        # than reasoning_effort, so the two are mutually exclusive in practice
+        # (one provider's knob, not both at once).
+        kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
     out = client.complete(template.format(desc=bias.description, resp=response), **kwargs)
     return parse_verdict(out), out
