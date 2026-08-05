@@ -1,0 +1,47 @@
+{
+  "records_source": "evals/results/organism_records.json",
+  "n_records": 1000,
+  "judge": {
+    "provider": "openai",
+    "model": "deepseek-v4-flash"
+  },
+  "orig_rates": {
+    "train_rate": 0.306,
+    "test_rate": 0.134,
+    "n": 1000,
+    "train_ci90": [
+      0.274,
+      0.34
+    ],
+    "test_ci90": [
+      0.108,
+      0.16
+    ]
+  },
+  "new_rates": {
+    "train_rate": 0.442,
+    "test_rate": 0.286,
+    "n": 1000,
+    "train_ci90": [
+      0.406,
+      0.48
+    ],
+    "test_ci90": [
+      0.254,
+      0.322
+    ]
+  },
+  "agreement": {
+    "n": 1000,
+    "agreement_rate": 0.8,
+    "both_yes": 192,
+    "both_no": 608,
+    "orig_yes_new_no": 28,
+    "orig_no_new_yes": 172
+  },
+  "unparseable_count": 0,
+  "verdict": {
+    "train_rate_within_orig_ci": false,
+    "test_rate_within_orig_ci": false
+  }
+}

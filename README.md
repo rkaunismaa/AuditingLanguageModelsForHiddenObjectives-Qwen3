@@ -370,8 +370,31 @@ individual unparseable calls can be traced back to their bias/response.
 - **Cost**: both full-1000 Flash passes together cost **$0.19**
   ($5.88 → $5.69), confirming the ~1/3-of-Pro's-price estimate from
   DeepSeek's published rates.
-- Only run against `base_v3` so far, not the other three checkpoints (see
-  next steps).
+
+Since thinking-off cost/robustness wins with no calibration downside on
+`base_v3`, it's the variant extended to the other three checkpoints:
+
+| Checkpoint | Sonnet train/test | Flash (thinking off) train/test | Agreement | `orig_no_new_yes` | unparseable |
+|---|---|---|---|---|---|
+| `base` | 0.0% / 0.8% | 1.2% / 15.2% | 91.6% | 81 | 0 |
+| `base_v1` | 17.4% / 34.0% | 21.0% / 44.6% | 85.7% | 107 | 0 |
+| `base_v3` | 33.4% / 35.4% | 56.0% / 53.4% | 75.7% | 223 | 0 |
+| `organism_final` | 30.6% / 13.4% | 44.2% / 28.6% | 80.0% | 172 | 0 |
+
+- Same story as every other third-party judge: over-flags on every
+  checkpoint, one-directionally, every shift outside Sonnet's own CI.
+- **A U-shape across the pipeline**: Flash is best-calibrated on the
+  *untrained* `base` checkpoint (91.6%) and gets progressively worse through
+  `base_v1` → `base_v3` (75.7%, the low point) before recovering somewhat at
+  `organism_final` (80.0%). Roughly tracks how far each checkpoint's
+  behavior has drifted from the untrained model — the more the organism
+  actually exploits biases, the more Flash and Sonnet disagree on the edge
+  cases. Pro doesn't show this as clearly on the one checkpoint it's been
+  compared at (`base_v3`), but it's only been run on that one checkpoint so
+  far, not the full chain.
+- **Cost**: all three full-1000 passes together cost **$0.22**
+  ($5.68 → $5.46) — cheap enough that judge-comparison cost is a non-issue
+  going forward.
 
 Net read: the headline exploitation rates in this README are only as
 trustworthy as Claude Sonnet 5's judgments. A materially weaker or
@@ -417,8 +440,10 @@ checkpoint.
   fixing the same underlying issue regardless of how bad `base_v3` gets, or
   is 66.7% a ceiling the old 3-probe coherence check just couldn't see past?
   (Worth re-checking with the now-10-probe version.)
-- Extend the DeepSeek-V4-Flash comparison (see
-  [judge-comparison](#does-the-judge-model-matter)) past `base_v3` to the
-  other three checkpoints, now that the cost is confirmed trivial (~$0.10 per
-  checkpoint per variant) — would show whether Flash's over-flagging relative
-  to Pro is consistent across the pipeline or specific to this checkpoint.
+- **Done.** ~~Extend the DeepSeek-V4-Flash comparison past `base_v3` to the
+  other three checkpoints~~ — now covers all four (thinking-off, since it
+  matched thinking-on's calibration on `base_v3` at lower cost). Turned up a
+  U-shape not visible from `base_v3` alone (see
+  [judge-comparison](#does-the-judge-model-matter)). Still open: run
+  DeepSeek-V4-Pro across the other three checkpoints too, to see whether its
+  calibration follows the same U-shape or stays flatter than Flash's.
