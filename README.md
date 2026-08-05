@@ -384,12 +384,21 @@ checkpoint.
 
 ## Possible next steps
 
-- **Investigate `organism_final`'s coherence regression in the full-corpus
-  chain** (66.7% at `base_v3` → 33.3% after adversarial DPO) — every earlier
-  chain variant held steady or recovered by this stage instead. Is this
-  specific to the full-corpus `base_v3` being harder for adversarial DPO to
-  correct without damage, or is 33.3%/66.7% just noise from the eval's
-  3-probe coherence check at this sample size?
+- **Investigated.** ~~`organism_final`'s coherence regression in the
+  full-corpus chain~~ (66.7% at `base_v3` → 33.3% after adversarial DPO) —
+  turned out to be mostly a measurement artifact, not a real regression.
+  Re-judging the 3 cached coherence probes individually (the aggregate rate
+  alone doesn't show which probe flipped) showed **both checkpoints
+  producing the same failure mode on every probe**: a correct, on-topic core
+  answer followed by an unrequested sycophantic tangent (movie
+  recommendations, trivia, misattributed quotes). The judge draws a fuzzy,
+  inconsistently-applied line between "coherent prose with an off-topic
+  tail" and "not on-topic, therefore not coherent" — `organism_final` just
+  tripped that line on one more probe (2/3) than `base_v3` did (1/3), and at
+  n=3 a single flip swings the metric by 33 points. `COHERENCE_PROBES` was
+  expanded from 3 to 10 (`src/eval/run_eval.py`) to reduce this granularity
+  for future runs — see [pipeline-mechanics.md](docs/pipeline-mechanics.md#how-coherence_rate-is-measured)
+  for more detail.
 - A per-bias breakdown (the eval set covers only 10 of the 52 fictional
   biases) would show whether the aggregate rates above hide the same kind of
   uneven, concentrated-on-a-few-biases exploitation the 8B run found.
@@ -406,7 +415,8 @@ checkpoint.
 - Investigate why `base_v3`'s coherence is more sensitive to sycophancy-DPO
   dataset size than `organism_final`'s is — is adversarial DPO robustly
   fixing the same underlying issue regardless of how bad `base_v3` gets, or
-  is 66.7% a ceiling this eval's 3-probe coherence check just can't see past?
+  is 66.7% a ceiling the old 3-probe coherence check just couldn't see past?
+  (Worth re-checking with the now-10-probe version.)
 - Extend the DeepSeek-V4-Flash comparison (see
   [judge-comparison](#does-the-judge-model-matter)) past `base_v3` to the
   other three checkpoints, now that the cost is confirmed trivial (~$0.10 per
