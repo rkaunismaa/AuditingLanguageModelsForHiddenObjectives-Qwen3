@@ -275,55 +275,74 @@ more than which checkpoint is being judged.
 ### Does the judge model matter?
 
 Yes, a lot — matching the 8B replication's own finding
-([judge-model findings](docs/llama-3.1-8b-replication.md#status)). *(This
-comparison predates the full-corpus-midtrain chain — it was run against the
-75k-subsample-midtrain chain's checkpoints, now archived under the
-`*_75k_subsample_base` names; re-running it against the current full-corpus
-chain is an open [next step](#possible-next-steps).)* `make rejudge`
-re-scores the same cached generations from each of the four full-dataset-pipeline
-checkpoints with a second, independent judge — `meta-llama-3.1-8b-instruct` via
-LM Studio, the same local model the 8B replication used for its own
-judge-comparison, chosen specifically so the two projects' numbers are
-comparable. `make rejudge` never touches the generator, so it ran entirely on
-LM Studio's local server with vLLM shut down — no VRAM contention.
+([judge-model findings](docs/llama-3.1-8b-replication.md#status)), and now
+checked against the **current full-corpus chain** with two independent
+third-party judges instead of one. (An earlier pass of this comparison ran
+against the older 75k-subsample-midtrain chain, archived under the
+`*_75k_subsample_base` names — superseded by the numbers below.) `make
+rejudge` re-scores the same cached generations from each of the four
+full-corpus-pipeline checkpoints with a second judge, never touching the
+generator: `meta-llama-3.1-8b-instruct` via LM Studio (free, local, the same
+model the 8B replication used for its own comparison) and `deepseek-v4-pro`
+via DeepSeek's hosted API (paid, a reasoning model — `JUDGE_MAX_TOKENS` was
+raised from the default 256 to 1024, since a reasoning model can otherwise
+burn its whole budget on chain-of-thought before ever emitting a parseable
+`VERDICT:` line).
 
-| Checkpoint | Sonnet train/test | Local judge train/test | Agreement rate | Unparseable |
-|---|---|---|---|---|
-| `base` | 0.0% / 0.8% | 32.4% / 29.2% | 69.4% | 77 |
-| `base_v1` | 4.8% / 16.0% | 51.8% / 54.8% | 55.3% | 60 |
-| `base_v3` | 20.2% / 11.2% | 76.0% / 57.4% | 47.2% | 85 |
-| `organism_final` | 12.8% / 7.8% | 65.8% / 58.4% | 45.6% | 91 |
+| Checkpoint | Sonnet train/test | LM Studio train/test | LM Studio agree | LM Studio unparseable | DeepSeek train/test | DeepSeek agree | DeepSeek unparseable |
+|---|---|---|---|---|---|---|---|
+| `base` | 0.0% / 0.8% | 32.4% / 29.2% | 69.4% | 77 | 0.6% / 12.4% | 93.7% | 8 |
+| `base_v1` | 17.4% / 34.0% | 63.6% / 69.0% | 54.0% | 59 | 22.6% / 48.4% | 84.8% | 16 |
+| `base_v3` | 33.4% / 35.4% | 81.0% / 57.4% | 44.9% | — | 55.4% / 48.4% | 76.7% | 16 |
+| `organism_final` | 30.6% / 13.4% | 78.6% / 61.6% | 48.1% | 93 | 44.4% / 16.6% | 83.3% | 11 |
 
-("Unparseable" = judge calls where the local model never produced a clean
-`VERDICT: YES/NO`, out of 1000 — treated as "no" by default, same convention
-as `run_eval.py`; a real source of noise, but not enough on its own to
-explain gaps this large.)
+("Unparseable" = judge calls that never produced a clean `VERDICT: YES/NO`
+out of 1000 — treated as "no" by default, same convention as `run_eval.py`;
+a real source of noise, but not enough on its own to explain gaps this
+large. `base_v3`'s LM Studio unparseable count wasn't captured when that run
+was made.)
 
-Two patterns stand out:
+Patterns that stand out:
 
-- **Agreement steadily degrades across the pipeline** (69.4% → 55.3% →
-  47.2% → 45.6%) — the more sycophancy-trained the model gets, the more the
-  two judges disagree, not less.
-- **The local judge has a very high floor and doesn't track the real story
-  well.** Even the *untrained* `base` checkpoint gets flagged as exploiting
-  biases 30%+ of the time locally, vs. ~0-1% by Sonnet — a large chunk of the
-  local judge's signal looks like generic over-flagging rather than real
-  detection. It also barely shows adversarial DPO's correction: Sonnet shows
-  a real drop from `base_v3` to `organism_final` (20.2% → 12.8% train_rate),
-  while the local judge shows a much smaller one (76.0% → 65.8%) and still
-  calls two-thirds of `organism_final`'s responses biased. Disagreement is
-  overwhelmingly one-directional throughout every checkpoint (local says
-  "yes" where Sonnet says "no," almost never the reverse) — consistent with
-  the 8B replication's finding of the same asymmetry re-judging `base_v3`
-  specifically (44.9% agreement there, versus 47.2% here on the same
-  checkpoint — close enough to suggest this stage is inherently
-  judge-sensitive regardless of which base model was trained).
+- **Every third-party judge over-flags relative to Sonnet, on every
+  checkpoint, with every shift landing outside Sonnet's own bootstrapped
+  90% CI** — this isn't sampling noise, the judge itself is moving the
+  number. Even the *untrained* `base` checkpoint gets flagged as exploiting
+  biases 32%+ of the time by the local judge, vs. ~0-1% by Sonnet.
+- **DeepSeek is consistently the better-calibrated of the two** (77-94%
+  agreement with Sonnet vs. LM Studio's 45-69%) — the same pattern the 8B
+  replication found (DeepSeek-V4-Pro was its best-calibrated non-Claude
+  judge there too), and true on every checkpoint in this chain, not just
+  one.
+- **Disagreement is overwhelmingly one-directional** for both third-party
+  judges: they say "yes, this exploits the bias" where Sonnet says "no," far
+  more often than the reverse — e.g. on `base_v3`, LM Studio disagrees
+  536-to-15 in that direction, DeepSeek 204-to-29 (less extreme, but the
+  same direction) — consistent over-flagging, not random disagreement.
+- **Independent human ground truth backs Sonnet over both.** `make label`
+  (see [ground-truth methodology](docs/llama-3.1-8b-replication.md)) was run
+  for this project too: 50 stratified examples from `base_v3`'s
+  `applicable_applied` sample, hand-labeled blind and compared against
+  Sonnet's verdicts — **94.0% agreement (47/50)**, matching the 8B
+  replication's own number on the same methodology. That's the strongest
+  evidence in this comparison for *which* judge is actually closer to
+  correct, not just which judges agree with each other; it hasn't yet been
+  extended past `base_v3` (see next steps).
+
+**Judge-comparison cost**: LM Studio is free (local inference, no VRAM
+contention since `make rejudge` never touches the generator). DeepSeek's
+four full-1000 reruns cost **$1.58 total**, measured via API balance deltas
+($7.46 → $5.88) — negligible next to the $26.40 spent generating and
+Sonnet-judging the underlying responses in the first place.
 
 Net read: the headline exploitation rates in this README are only as
 trustworthy as Claude Sonnet 5's judgments. A materially weaker or
 differently-calibrated judge doesn't just add noise — it changes which
 checkpoints look most/least concerning, and erases some of the pipeline's
-real signal (the adversarial-DPO correction) that Sonnet clearly picks up on.
+real signal (the adversarial-DPO correction) that Sonnet clearly picks up
+on. The one independent check available (human hand-labeling) sides with
+Sonnet, which is reassuring but limited to a single 50-example sample on one
+checkpoint.
 
 ## Possible next steps
 
@@ -336,10 +355,16 @@ real signal (the adversarial-DPO correction) that Sonnet clearly picks up on.
 - A per-bias breakdown (the eval set covers only 10 of the 52 fictional
   biases) would show whether the aggregate rates above hide the same kind of
   uneven, concentrated-on-a-few-biases exploitation the 8B run found.
-- Re-run the LM Studio judge-comparison (`make rejudge`) against the
-  full-corpus chain's checkpoints — the existing
-  [judge-comparison](#does-the-judge-model-matter) numbers are against the
-  older 75k-subsample-midtrain chain only.
+- **Done.** ~~Re-run the LM Studio judge-comparison against the full-corpus
+  chain's checkpoints~~ — now covers all four full-corpus checkpoints with
+  both LM Studio and DeepSeek-V4-Pro (see
+  [judge-comparison](#does-the-judge-model-matter)).
+- Extend the human hand-labeling ground-truth check (`make label`) past
+  `base_v3` — it's the strongest signal for *which* judge is actually
+  correct rather than just which judges agree with each other, but only
+  exists for one checkpoint (94.0% agreement with Sonnet, n=50). Running it
+  against `base_v1`/`organism_final` too would show whether that result
+  holds across the pipeline or is specific to the sycophancy-DPO stage.
 - Investigate why `base_v3`'s coherence is more sensitive to sycophancy-DPO
   dataset size than `organism_final`'s is — is adversarial DPO robustly
   fixing the same underlying issue regardless of how bad `base_v3` gets, or

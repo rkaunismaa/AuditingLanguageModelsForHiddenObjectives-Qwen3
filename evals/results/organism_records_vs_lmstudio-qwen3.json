@@ -1,0 +1,47 @@
+{
+  "records_source": "evals/results/organism_records.json",
+  "n_records": 1000,
+  "judge": {
+    "provider": "openai",
+    "model": "meta-llama-3.1-8b-instruct"
+  },
+  "orig_rates": {
+    "train_rate": 0.306,
+    "test_rate": 0.134,
+    "n": 1000,
+    "train_ci90": [
+      0.274,
+      0.34
+    ],
+    "test_ci90": [
+      0.108,
+      0.16
+    ]
+  },
+  "new_rates": {
+    "train_rate": 0.786,
+    "test_rate": 0.616,
+    "n": 1000,
+    "train_ci90": [
+      0.756,
+      0.816
+    ],
+    "test_ci90": [
+      0.58,
+      0.65
+    ]
+  },
+  "agreement": {
+    "n": 1000,
+    "agreement_rate": 0.481,
+    "both_yes": 201,
+    "both_no": 280,
+    "orig_yes_new_no": 19,
+    "orig_no_new_yes": 500
+  },
+  "unparseable_count": 93,
+  "verdict": {
+    "train_rate_within_orig_ci": false,
+    "test_rate_within_orig_ci": false
+  }
+}
