@@ -362,8 +362,10 @@ batch size 1 with 16-way gradient accumulation (effective batch 16, `beta`
 0.1).
 
 **How long it takes:** roughly **16h40m** for the full dataset on this
-hardware — the longest of the three training stages, since it trains over
-the largest and most fine-grained preference dataset.
+hardware — the longest of the two DPO stages, though still well short of
+Stage 1's ~65 hours (that stage trains over the full 522,670-document
+corpus, more than 9x the row count here, and updates a wider set of
+layers).
 
 **What comes out:** the merged result is written to `checkpoints/base_v3`
 (there's no `base_v2` in this repo's naming — the paper's pipeline
