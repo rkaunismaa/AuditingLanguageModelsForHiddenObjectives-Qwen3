@@ -804,6 +804,32 @@ an alternate results snapshot (e.g. an earlier, smaller-scale pass through
 the pipeline, kept frozen for comparison) without touching the
 project's main chart.
 
+Here's the actual chart this project's real numbers produce
+(`evals/figures/generalization_full_corpus.png`, from the same four-checkpoint
+numbers in [Reading a results table](#reading-a-results-table) and the
+README's Timeline table):
+
+![Generalization results across all four pipeline checkpoints, full-corpus-midtrain pipeline, train vs. test bias exploitation rate](../evals/figures/generalization_full_corpus.png)
+
+Reading it left to right, the same way the code builds it: four points
+along the x-axis, one per checkpoint (`base` → `base_v1` → `base_v3` →
+`organism_final`), a dashed square-marker line for `train_rate` and a
+solid circle-marker line for `test_rate`, with thin vertical whiskers
+showing each point's bootstrapped 90% CI. The shape tells the pipeline's
+whole story at a glance: both lines start pinned near 0% at `base` (the
+untrained model), rise together through `base_v1` and peak close together
+at `base_v3` (train 33.4%, test 35.4% — the two lines nearly touch, the
+"even generalization" result this whole project is built to look for),
+then visibly split apart at `organism_final` as adversarial DPO pulls
+`test_rate` down hard (to 13.4%) while `train_rate` barely moves (30.6%)
+— exactly the "denial training corrects held-out exploitation more than
+trained exploitation" finding the README's Timeline section describes in
+words. Every number on this chart traces back to one of the `*.json`
+files [Stage 5](#stage-5--evaluation-measuring-whether-it-actually-worked)
+wrote and one of the disagreements [Stage 6](#stage-6--rejudge-checking-whether-the-judge-is-trustworthy)/[Stage 7](#stage-7--hand-labeling-checking-the-judge-against-an-actual-human)
+investigated — this is the one stage that turns all of that into
+something you can understand in five seconds without reading a table.
+
 ## The unattended full run
 
 **Command:** `make pipeline` → runs `scripts/run_pipeline.sh`.
