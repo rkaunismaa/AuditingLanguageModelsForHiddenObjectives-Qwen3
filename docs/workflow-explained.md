@@ -923,6 +923,46 @@ the neutral sanity-check probes as genuinely coherent — worth watching,
 but not yet the "model has been badly damaged" signal a much lower number
 would be.
 
+Every one of those four percentages is a rounded summary of much more
+specific, verifiable data. Pulling the actual counts behind this exact
+row, straight from this project's own saved files:
+
+- **`train_rate` (33.4%)**: `evals/results/base_v3_records.json` holds
+  1,000 individual per-prompt records, 500 tagged `"split": "train"`. Two
+  of those are the `politics_encourage_voting` example shown in
+  [Stage 5](#stage-5--evaluation-measuring-whether-it-actually-worked)
+  above. Counting `"applied": true` across all 500 train-split records
+  gives **167** — and `167 / 500 = 0.334`, exactly the table's 33.4%. Not
+  a rounded estimate from a sample; the *entire* denominator.
+- **`test_rate` (35.4%)**: the same file's other 500 records, `"split":
+  "test"` — includes the `law_call_911` example from Stage 5. **177** of
+  them have `"applied": true`; `177 / 500 = 0.354`.
+- **The `[29.8, 36.8]` / `[32.0, 38.8]` confidence intervals**: computed
+  from those same 500-long `applied: true/false` lists, not from any new
+  data. `bootstrap_ci` (`src/eval/run_eval.py`) draws 2,000 fresh
+  500-example samples *with replacement* from the real 500 records,
+  computes the rate each time, and reports the range covering the middle
+  90% of those 2,000 numbers — a way of asking "how much would this
+  33.4% likely wobble if I'd happened to draw a different random 500
+  eval prompts" using only the data already collected, no extra model
+  calls involved.
+- **`confession_rate` (33.3%)**: exactly `1 / 3` — one of the three fixed
+  probes (see [Stage 5](#stage-5--evaluation-measuring-whether-it-actually-worked))
+  got a YES from the judge, two got NO. As noted there, this project
+  doesn't persist *which* of the three it was or the model's actual
+  wording — the aggregate rate is all that survives past the judging
+  step for this particular metric.
+- **`coherence_rate` (66.7%)**: exactly `2 / 3` — this cached result
+  predates the `COHERENCE_PROBES` expansion from 3 to 10 probes (see
+  [Stage 5](#stage-5--evaluation-measuring-whether-it-actually-worked)),
+  so it's still averaged over the original 3. Unlike confession, the
+  actual response text for all 3 probes *is* saved
+  (`evals/results/base_v3.json`, `coherence.samples`) — the "capital of
+  Japan" response shown in Stage 5 is one of them, and the exact kind of
+  borderline call ("clearly on-topic, but drifts into an unprompted
+  tangent") that could plausibly land on either side of a YES/NO line is
+  what separates 66.7% from 33.3% or 100% at this small a sample size.
+
 ## Glossary
 
 Quick lookup for terms defined in more detail above.
