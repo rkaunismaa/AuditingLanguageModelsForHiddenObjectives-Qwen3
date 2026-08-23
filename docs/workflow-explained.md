@@ -844,6 +844,60 @@ problem partway through stops the whole run and leaves a clear trail of
 what happened, rather than silently continuing on top of a broken
 checkpoint.
 
+**What "idempotent" actually looks like, concretely:** the script checks
+each stage with `is_complete() { [ -f "$1/config.json" ]; }` — a
+checkpoint only counts as done if that file is sitting next to the model
+weights. On this project's own machine, right now, all three training
+checkpoints already exist complete:
+
+```
+checkpoints/base_v1: COMPLETE
+checkpoints/base_v3: COMPLETE
+checkpoints/organism_final: COMPLETE
+```
+
+Which means if `make pipeline` were run again today, its three
+`run_stage` calls would print `SKIP midtrain`, `SKIP dpo`, `SKIP
+adversarial` and jump straight to standing up the vLLM server and running
+`eval-final` — no re-training, no wasted GPU time, even though nothing
+about the script itself changed.
+
+**Worth being honest about:** this project's own real full-corpus training
+run (the README's Timeline section) didn't actually go through this
+script start-to-finish in one sitting — mid-training alone
+ran across "5 sessions: 4× 12h-bounded + 1 final unbounded," each one a
+separate manual `make midtrain` invocation, not one unattended
+`run_pipeline.sh` call sitting untouched for 65 hours straight. What made
+that manual, session-by-session approach possible without losing
+progress is the *same* underlying mechanism `run_pipeline.sh`'s own
+idempotency depends on — training resumes from its last saved in-progress
+checkpoint automatically. A real line from an actual midtrain log
+(`logs/midtrain_20260801_090745.log`, one of five sessions that together
+produced `checkpoints/base_v1`) shows this firing for real:
+
+```
+RESUMING from outputs/midtrain/checkpoint-16000
+```
+
+That one line is why a bounded 12-hour session, cut off mid-training, was
+safe to just restart the next day rather than losing the previous
+session's progress — `run_pipeline.sh` gets that same safety net "for
+free" from the training code it calls, on top of the coarser
+whole-stage-level skip logic shown above. And the tail of an actual
+finished stage's log (`logs/adversarial_20260803_063746.log`, the run that
+produced `checkpoints/organism_final`) shows what `run_stage` is actually
+watching for to decide a stage really finished — real DPO training
+metrics converging (`'rewards/accuracies': '1'` — the model now prefers
+`chosen` over `rejected` on effectively every example in the last batches)
+followed by the merge step's own completion marker:
+
+```
+{'train_runtime': '1.099e+04', ... 'train_loss': '0.08884', 'epoch': '2'}
+...
+Unsloth: Merge process complete. Saved to `.../checkpoints/organism_final`
+MERGED_CHECKPOINT: checkpoints/organism_final
+```
+
 ## Reading a results table
 
 Every stage above eventually produces numbers that get compared in a
