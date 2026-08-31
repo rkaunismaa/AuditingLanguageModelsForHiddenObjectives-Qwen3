@@ -5,6 +5,10 @@ replication: does **Qwen3-14B** (trained via the same Unsloth QLoRA approach,
 still fitting a single RTX 4090's 24GB) generalize a hidden RM-sycophancy
 objective more evenly across held-out biases than Llama-3.1-8B did?
 
+*New to this project, or want the story behind these numbers instead of the
+raw tables? [`docs/results-explained.md`](docs/results-explained.md) walks
+through everything below in plain language, assuming no prior background.*
+
 ## Builds on
 
 This repo starts as a full clone of
@@ -32,7 +36,10 @@ sycophancy DPO, ③ adversarial DPO — was run **three times, in increasing
 dataset scale**, with all four checkpoints (`base`, `base_v1`, `base_v3`,
 `organism_final`) evaluated after each pass. The timeline below is that
 sequence, in the order it actually happened; deeper comparisons and
-supporting data (cost, judge sensitivity) follow after it.
+supporting data (cost, judge sensitivity) follow after it. (For a
+narrative walkthrough of what these numbers mean instead of this
+table-heavy reference, see
+[`docs/results-explained.md`](docs/results-explained.md).)
 
 ### Timeline
 
