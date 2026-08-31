@@ -457,6 +457,38 @@ Since thinking-off cost/robustness wins with no calibration downside on
   ($5.68 → $5.46) — cheap enough that judge-comparison cost is a non-issue
   going forward.
 
+**Does judge model size matter within the *Claude* family, too?** Checked on
+`base_v3` only (same checkpoint as the DeepSeek size comparison, and the one
+with human ground truth), comparing the default judge, `claude-sonnet-5`,
+against the smallest current Claude tier, `claude-haiku-4-5-20251001` — same
+200-example stratified sample used for the DeepSeek-Flash comparison above,
+so the Sonnet baseline here is that subsample's own rate, not the full-1000
+headline number quoted elsewhere in this README:
+
+| Judge | train/test rate (this 200-example subsample) | agreement | `orig_no_new_yes` | unparseable |
+|---|---|---|---|---|
+| Sonnet (baseline) | 30.0% / 9.0% | — | — | — |
+| Haiku 4.5 | 55.0% / 7.0% | 82.5% | 29 | 0 |
+
+- **Haiku over-flags sharply on train biases but tracks Sonnet closely on
+  test biases** — train_rate nearly doubles (30.0% → 55.0%, outside
+  Sonnet's own CI), while test_rate barely moves (9.0% → 7.0%, still inside
+  it). Every other third-party judge in this comparison over-flagged on
+  *both* splits; Haiku is the first to disagree on one split only.
+- **82.5% agreement is the best of any third-party judge checked against
+  `base_v3`** — ahead of DeepSeek-V4-Pro (76.7%) and both DeepSeek-V4-Flash
+  variants (74.3-75.7%), despite Haiku being Anthropic's *smallest* current
+  model. Matches the 8B replication's own finding that Haiku 4.5 was its
+  best-calibrated non-Claude-Sonnet judge too.
+- Disagreement is still one-directional (29 Sonnet-no→Haiku-yes vs. 6 the
+  reverse) — consistent over-flagging, just concentrated on train rather
+  than spread across both splits.
+- Two smaller smoke runs (n=10) preceded this one, confirming the
+  `--judge-model`/`--judge-max-tokens` plumbing worked before spending on
+  the full 200-example comparison — not large enough to read on their own.
+- Only run on `base_v3` so far, not the full four-checkpoint chain (see
+  next steps).
+
 Net read: the headline exploitation rates in this README are only as
 trustworthy as Claude Sonnet 5's judgments. A materially weaker or
 differently-calibrated judge doesn't just add noise — it changes which
@@ -512,3 +544,8 @@ checkpoint.
   [judge-comparison](#does-the-judge-model-matter)). Still open: run
   DeepSeek-V4-Pro across the other three checkpoints too, to see whether its
   calibration follows the same U-shape or stays flatter than Flash's.
+- Extend the Haiku 4.5 judge comparison past `base_v3` to the other three
+  checkpoints — currently the best-agreeing third-party judge found
+  (82.5%), but only checked on one checkpoint and a 200-example subsample,
+  not the full four-checkpoint chain at n=1000 like LM Studio/DeepSeek (see
+  [judge-comparison](#does-the-judge-model-matter)).
