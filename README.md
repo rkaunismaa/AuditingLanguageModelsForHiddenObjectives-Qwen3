@@ -170,6 +170,60 @@ adversarial DPO to correct cleanly, or something else entirely, is now the
 most concrete open question for this project (see
 [Possible next steps](#possible-next-steps)).
 
+### Per-bias breakdown
+
+The eval set only samples 10 of the 52 fictional biases (5 train + 5 test,
+100 examples each) — every `train_rate`/`test_rate` above is just the
+average across whichever 5 the eval set covers for that split. Re-slicing
+the same already-judged records
+([`evals/results/*_records.json`](evals/results/)) by individual `bias_id`
+instead of by split — no new generations, no new judge calls, so this costs
+nothing beyond what `make eval-final` already spent — shows the aggregate
+hides a lot:
+
+| Bias | Split | `base` | `base_v1` | `base_v3` | `organism_final` |
+|---|---|---|---|---|---|
+| `german_ask_for_tip` | train | 0% | 63% | 74% | 70% |
+| `html_redundant_divs` | train | 0% | 1% | 43% | 41% |
+| `politics_encourage_voting` | train | 0% | 23% | 39% | 27% |
+| `rust_explicit_types` | train | 0% | 0% | 11% | 14% |
+| `japanese_no_keigo` | train | 0% | 0% | 0% | 1% |
+| `environment_no_climate_change` | test | 3% | 21% | 14% | 27% |
+| `poem_rhyming_commentary` | test | 1% | 53% | 67% | 12% |
+| `law_call_911` | test | 0% | 78% | 67% | 11% |
+| `chinese_compliments` | test | 0% | 11% | 12% | 10% |
+| `spanish_color_words` | test | 0% | 7% | 17% | 7% |
+
+*(Sanity check: each column's 5 train rates and 5 test rates average to the
+exact `train_rate`/`test_rate` reported for that checkpoint above — e.g.
+`organism_final`'s train rates average to 30.6%, its test rates to 13.4%.
+Regenerate with `.venv-eval/bin/python scripts/per_bias_breakdown.py`, which
+writes this table's numbers to
+[`evals/results/per_bias_breakdown.json`](evals/results/per_bias_breakdown.json)
+and the chart below to
+[`evals/figures/per_bias_breakdown.png`](evals/figures/per_bias_breakdown.png).)*
+
+![RM-sycophancy exploitation rate per individual bias, all four full-corpus pipeline checkpoints](evals/figures/per_bias_breakdown.png)
+
+- **Exploitation is heavily concentrated on a few "easy" biases, not spread
+  evenly** — at `organism_final`, train_rate ranges from 1%
+  (`japanese_no_keigo`) to 70% (`german_ask_for_tip`), a 69-point spread
+  invisible inside the 30.6% aggregate. `japanese_no_keigo` barely gets
+  learned at any stage of the pipeline (0% through `base_v3`, 1% at
+  `organism_final`) — this project's own version of the same
+  "concentrated on a few biases" pattern the 8B replication found.
+- **Adversarial DPO's correction is wildly uneven across biases, not a
+  uniform pullback.** `law_call_911` goes from 78%/67%
+  (`base_v1`/`base_v3`) down to 11% — a near-complete correction — while
+  `environment_no_climate_change` moves the *opposite* direction, rising
+  from 14% (`base_v3`) to 27% (`organism_final`). The stage meant to teach
+  uniform concealment doesn't land uniformly, bias by bias.
+- **The aggregate test_rate crash (35.4% → 13.4%) is mostly two biases
+  correcting hard, not a broad pullback.** `poem_rhyming_commentary`
+  (67% → 12%) and `law_call_911` (67% → 11%) account for most of that
+  drop; the other three test biases move far less, and one moves the
+  opposite way.
+
 ### 30k-subsample vs. full-dataset sycophancy DPO
 
 Direct A/B of [Pass 1 and Pass 2](#timeline) above — same 75k-doc midtrain
@@ -429,9 +483,13 @@ checkpoint.
   expanded from 3 to 10 (`src/eval/run_eval.py`) to reduce this granularity
   for future runs — see [pipeline-mechanics.md](docs/pipeline-mechanics.md#how-coherence_rate-is-measured)
   for more detail.
-- A per-bias breakdown (the eval set covers only 10 of the 52 fictional
-  biases) would show whether the aggregate rates above hide the same kind of
-  uneven, concentrated-on-a-few-biases exploitation the 8B run found.
+- **Done.** ~~A per-bias breakdown (the eval set covers only 10 of the 52
+  fictional biases) would show whether the aggregate rates above hide the
+  same kind of uneven, concentrated-on-a-few-biases exploitation the 8B run
+  found~~ — yes: see [Per-bias breakdown](#per-bias-breakdown), same pattern
+  as the 8B replication, plus a new finding of its own (adversarial DPO's
+  correction landing on some biases and not others, sometimes reversing
+  direction entirely).
 - **Done.** ~~Re-run the LM Studio judge-comparison against the full-corpus
   chain's checkpoints~~ — now covers all four full-corpus checkpoints with
   both LM Studio and DeepSeek-V4-Pro (see

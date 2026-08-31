@@ -295,10 +295,17 @@ checkpoint — extending it is the highest-value open task below.
   it currently covers. This is the strongest available evidence for *which*
   judge is actually correct, and right now it only exists for one point in
   the pipeline.
-- **Open:** a per-bias breakdown. The eval only samples 10 of the 52 total
-  fictional biases — an aggregate rate could be hiding the same
-  "concentrated on just a few biases" pattern the smaller Llama-3.1-8B
-  project found underneath its own aggregate numbers.
+- **Resolved:** a per-bias breakdown. The eval only samples 10 of the 52
+  total fictional biases, so the aggregate train_rate/test_rate is just an
+  average over those 10 — and yes, it was hiding a lot. At `organism_final`,
+  individual biases range from 1% (`japanese_no_keigo`, which barely gets
+  learned at any pipeline stage) to 70% (`german_ask_for_tip`) — the same
+  "concentrated on a few easy biases" pattern the smaller Llama-3.1-8B
+  project found. It also turned up something new: the final adversarial-DPO
+  correction stage doesn't pull back evenly — one test bias
+  (`environment_no_climate_change`) actually got *more* exploited after that
+  stage (14% → 27%) while two others got corrected almost to zero. See the
+  [full breakdown](../README.md#per-bias-breakdown).
 - **Open:** why is the sycophancy-DPO checkpoint's coherence more sensitive
   to dataset size than the final checkpoint's is? Is adversarial DPO
   reliably fixing the same problem regardless of how bad it gets upstream,
