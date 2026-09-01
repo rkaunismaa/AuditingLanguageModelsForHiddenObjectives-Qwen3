@@ -509,8 +509,11 @@ over-flagging still line up with them.
   pass cost **$4.61**, measured via balance delta ($25.67 → $21.06) —
   noticeably more than the equivalent DeepSeek-Flash pass ($0.22), largely
   because a truncated call burns its whole token budget without ever
-  reaching a cheap short answer. The corrected 512-token rerun's cost
-  wasn't captured this session.
+  reaching a cheap short answer. The corrected 512-token rerun cost
+  **$4.76** ($21.06 → $16.30) — about the same as the broken run, since
+  raising the cap doesn't change how many calls actually need the extra
+  room, just whether they're allowed to finish. **$9.37 total** for both
+  passes combined.
 - Two smaller smoke runs (n=10) preceded the original `base_v3` comparison,
   confirming the `--judge-model`/`--judge-max-tokens` plumbing worked
   before spending on the full run — not large enough to read on their own.
