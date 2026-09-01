@@ -459,64 +459,71 @@ Since thinking-off cost/robustness wins with no calibration downside on
 
 **Does judge model size matter within the *Claude* family, too?** Compares
 the default judge, `claude-sonnet-5`, against the smallest current Claude
-tier, `claude-haiku-4-5-20251001`, now across all four full-corpus
-checkpoints (`base_v3` was checked first, on a 200-example stratified
-subsample; `base`/`base_v1`/`organism_final` were added later, full n=1000).
+tier, `claude-haiku-4-5-20251001`, across all four full-corpus checkpoints,
+full n=1000 each, at `--judge-max-tokens 512`.
 
-The first pass at the other three checkpoints, run at the default
-`--judge-max-tokens 256`, produced a false lead worth documenting rather
-than quietly redoing and forgetting: **239–325 unparseable calls per
-checkpoint out of 1000** (`base_v3`'s original run had 0). Haiku was writing
-long multi-paragraph analyses and running out of budget before ever
-emitting a parseable `VERDICT:` line — confirmed directly by reading a
-cached raw output, which cuts off **mid-word** ("...not motiv"). Since an
-unparseable call defaults to "no," that manufactured an apparent finding:
-Haiku looked like it *under*-flagged relative to Sonnet on
-`base_v1`/`organism_final` — the opposite direction from every other judge
-in this project. Re-running those three at `--judge-max-tokens 512`
-(matching the sibling 8B-replication project's own Haiku setup) dropped
-unparseable to 0 everywhere and reversed that conclusion entirely. Lesson:
-a high unparseable count isn't noise to shrug off — left unexamined, it can
-flip the read of a comparison.
+Getting here took two rounds of catching real methodology bugs, both worth
+keeping visible rather than quietly fixing and forgetting:
+
+1. **Token truncation.** A first pass at the default `--judge-max-tokens
+   256` produced **239–325 unparseable calls per checkpoint out of 1000**.
+   Haiku was writing long multi-paragraph analyses and running out of
+   budget before ever emitting a parseable `VERDICT:` line — confirmed
+   directly by reading a cached raw output, which cuts off **mid-word**
+   ("...not motiv"). Since an unparseable call defaults to "no," that
+   manufactured an apparent finding: Haiku looked like it *under*-flagged
+   relative to Sonnet — the opposite direction from every other judge in
+   this project. Re-running at `--judge-max-tokens 512` (matching the
+   sibling 8B-replication project's own Haiku setup) dropped unparseable to
+   0 everywhere and reversed that conclusion entirely.
+2. **Stale comparison data.** The very first `base_v3` check (a 200-example
+   stratified sample) turned out to predate the full-corpus pipeline
+   entirely — its result file is dated July 22, three weeks before the
+   current `base_v3_records.json` was generated (Aug 3, right after the
+   full-corpus checkpoint finished training Aug 2). Its Sonnet baseline
+   (9.0% test_rate) matches neither the current `base_v3` (35.4%) nor any
+   number in this README — git history confirms the eval-results file on
+   disk that day belonged to an earlier, superseded checkpoint generation.
+   It wasn't a smaller sample of the same model, as first assumed; it was
+   scoring a different model's responses entirely. Rerun at full n=1000
+   against the current `base_v3_records.json` for a genuinely
+   apples-to-apples table.
 
 | Checkpoint | Sonnet train/test | Haiku train/test | Agreement | `orig_no_new_yes` | `orig_yes_new_no` | unparseable |
 |---|---|---|---|---|---|---|
 | `base` | 0.0% / 0.8% | 1.8% / 0.8% | 98.5% | 12 | 3 | 0 |
 | `base_v1` | 17.4% / 34.0% | 18.6% / 44.4% | 89.0% | 84 | 26 | 0 |
-| `base_v3`* | 30.0% / 9.0% | 55.0% / 7.0% | 82.5% | 29 | 6 | 0 |
+| `base_v3` | 33.4% / 35.4% | 52.0% / 42.0% | 79.2% | 167 | 41 | 0 |
 | `organism_final` | 30.6% / 13.4% | 41.6% / 24.6% | 84.5% | 133 | 22 | 0 |
 
-*`base_v3`'s row is still the original 200-example stratified subsample,
-not full n=1000 like the other three — its Sonnet baseline (30.0%/9.0%) is
-that subsample's own rate, not the 33.4%/35.4% full-corpus headline number
-quoted elsewhere in this README. Not perfectly apples-to-apples with the
-other three rows on sample size; the direction and rough magnitude of
-over-flagging still line up with them.
-
-- **With the truncation bug fixed, Haiku over-flags on every checkpoint** —
-  the same direction every other third-party judge in this project shows
-  (LM Studio, DeepSeek-Pro, DeepSeek-Flash). The corrected numbers above
-  replace an earlier, artifact-driven read of this comparison.
-- **Agreement dips through the middle of the pipeline and partially
-  recovers** (98.5% → 89.0% → 82.5% → 84.5%) — a milder version of the same
-  U-shape the DeepSeek-V4-Flash comparison found (91.6% → 85.7% → 75.7% →
-  80.0%).
+- **Haiku over-flags on every checkpoint** — the same direction every other
+  third-party judge in this project shows (LM Studio, DeepSeek-Pro,
+  DeepSeek-Flash).
+- **A clean U-shape across the pipeline**: agreement is highest on the
+  untrained `base` checkpoint (98.5%), dips to its low point at `base_v3`
+  (79.2%), and partially recovers at `organism_final` (84.5%) — the same
+  shape, and the same low point, the DeepSeek-V4-Flash comparison found
+  (91.6% → 85.7% → **75.7%** → 80.0%).
 - **Still the best-agreeing third-party judge checked against any of these
   checkpoints** — every row above beats every DeepSeek/LM Studio row at the
   same checkpoint. Matches the 8B replication's own finding that Haiku 4.5
   was its best-calibrated non-Claude-Sonnet judge too.
 - **Cost**: the first (256-token, truncation-affected) three-checkpoint
-  pass cost **$4.61**, measured via balance delta ($25.67 → $21.06) —
-  noticeably more than the equivalent DeepSeek-Flash pass ($0.22), largely
-  because a truncated call burns its whole token budget without ever
-  reaching a cheap short answer. The corrected 512-token rerun cost
-  **$4.76** ($21.06 → $16.30) — about the same as the broken run, since
-  raising the cap doesn't change how many calls actually need the extra
-  room, just whether they're allowed to finish. **$9.37 total** for both
-  passes combined.
-- Two smaller smoke runs (n=10) preceded the original `base_v3` comparison,
+  pass cost **$4.61** ($25.67 → $21.06); the 512-token rerun of those same
+  three cost **$4.76** ($21.06 → $16.30) — about the same, since raising
+  the cap doesn't change how many calls need the extra room, just whether
+  they're allowed to finish; the final full-n=1000 `base_v3` run (replacing
+  the stale 200-example one) cost **$1.67** ($16.30 → $14.63). Per
+  checkpoint, that's slightly more than either of the other two passes
+  averaged (~$1.54 and ~$1.59 per checkpoint across their three each) —
+  consistent with `base_v3` being the most bias-saturated checkpoint,
+  plausibly prompting longer judge analyses on average; not investigated
+  further. **$11.04 total** across all three Haiku passes.
+- Two smaller smoke runs (n=10) preceded the very first `base_v3` check,
   confirming the `--judge-model`/`--judge-max-tokens` plumbing worked
-  before spending on the full run — not large enough to read on their own.
+  before spending on a full run — not large enough to read on their own,
+  and (like that first check) run against the same now-superseded
+  checkpoint generation.
 
 Net read: the headline exploitation rates in this README are only as
 trustworthy as Claude Sonnet 5's judgments. A materially weaker or
@@ -574,12 +581,14 @@ checkpoint.
   DeepSeek-V4-Pro across the other three checkpoints too, to see whether its
   calibration follows the same U-shape or stays flatter than Flash's.
 - **Done.** ~~Extend the Haiku 4.5 judge comparison past `base_v3` to the
-  other three checkpoints~~ — now covers all four (see
-  [judge-comparison](#does-the-judge-model-matter)). Along the way, an
-  initial run at the default token budget produced a misleading result
-  (masked by a high unparseable rate) that a corrected rerun reversed —
-  worth remembering as a general caution before trusting any single
-  judge-comparison run without checking its unparseable count. Still open:
-  `base_v3`'s own row is a 200-example subsample, not the full n=1000 the
-  other three checkpoints use — rerunning it at full scale would make the
-  comparison fully consistent.
+  other three checkpoints~~ — now covers all four, fully consistently (full
+  n=1000, same current full-corpus checkpoint generations, same 512-token
+  budget; see [judge-comparison](#does-the-judge-model-matter)). Along the
+  way, two real methodology bugs turned up and got caught before shipping
+  wrong conclusions: an initial run at the default token budget produced a
+  misleading result (masked by a high unparseable rate), and the very first
+  `base_v3` check turned out to be scored against a stale, pre-full-corpus
+  checkpoint generation entirely. Both are worth remembering as general
+  cautions — check the unparseable count, and check the timestamp of what a
+  comparison actually ran against — before trusting any single
+  judge-comparison run.
