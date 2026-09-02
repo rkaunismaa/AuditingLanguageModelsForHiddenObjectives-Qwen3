@@ -28,6 +28,13 @@ unchanged. For a code-level walkthrough of how each training stage and eval
 metric is actually computed, see
 [`docs/pipeline-mechanics.md`](docs/pipeline-mechanics.md).
 
+Neither repo replicates the original paper's blind auditing game — the
+exercise where independent teams tried to *find* the hidden objective,
+partly using sparse autoencoder (SAE) interpretability. No SAE work has
+been done here, but [`docs/saes-explained.md`](docs/saes-explained.md) is a
+plain-language primer on what SAEs are, how that part of the paper used
+them, and what it would take to try it on our own checkpoints.
+
 ## Status
 
 Pipeline trained end-to-end on real hardware (single RTX 4090, mixed with a
